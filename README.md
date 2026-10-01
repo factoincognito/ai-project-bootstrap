@@ -13,20 +13,25 @@ This repo was created from the bootstrapper with "Use this template".
 The template version it came from is recorded in `CHANGELOG.md`. Do
 these steps once, then delete this whole section.
 
-1. **Copy in a language pack** from `languages/` (`node` or `web`). A
-   bootstrap wizard that does this for you is planned but not written
-   yet, so by hand:
+1. **Copy in a language pack** from `languages/` (`node`, `web`,
+   `python` or `react-native`). A bootstrap wizard that does this for
+   you is planned but not written yet, so by hand:
 
    | Pack file | Goes to |
    |---|---|
    | `ci.yml` | `.github/workflows/ci.yml` (replaces the stub, which only checks out the code) |
    | `gitignore` | `.gitignore` (merge with the template's) |
    | `vscode-settings.json`, `vscode-extensions.json` | `.vscode/settings.json`, `.vscode/extensions.json` |
-   | `package.json`, `tsconfig.json`, `biome.json` | project root |
+   | node, web, react-native: `package.json`, `tsconfig.json`, `biome.json` | project root |
    | node: `placeholder.test.ts` | `src/` |
    | web: `index.html`, `vite.config.mts`, `playwright.config.ts` | project root |
    | web: `starter/src/`, `starter/e2e/` | `src/`, `e2e/` |
    | web, optional: `deploy.yml`, `wrangler.jsonc` | `.github/workflows/deploy.yml`, project root |
+   | python: `pyproject.toml`, `requirements.txt`, `requirements-dev.txt` | project root |
+   | python: `pre-commit-config.yaml` | `.pre-commit-config.yaml` |
+   | python: `starter/src/` | `src/` |
+   | react-native: `app.json` | project root |
+   | react-native: `starter/src/` | `src/` |
 
    Then follow the pack's `code-standards.md` ("First-time setup"). Once
    the pack is in place you can delete the `languages/` folder.
@@ -39,8 +44,14 @@ these steps once, then delete this whole section.
 3. **Fill in the placeholders**: `[PROJECT NAME]`, `[PO NAME]` and the
    description in this README, `CLAUDE.md`, `CHANGELOG.md`, `docs/SPEC.md`,
    `docs/BACKLOG.md`, `docs/NEXT_SESSION.md` and `memory/project.md`.
-   Search the repo for `[` followed by a capital letter to find them.
-4. **Delete this section** and commit the result through a pull request.
+   Search the repo for `[` followed by a capital letter to find them
+   (ignore the `licenses/` folder, whose text has a few such links).
+4. **Choose your project's licence.** The template's own files are
+   licensed under the PolyForm Noncommercial License 1.0.0 (see
+   `licenses/`); keep that folder for as long as any template file
+   remains in your project. It does not license your project: add your
+   own `LICENSE` file at the root.
+5. **Delete this section** and commit the result through a pull request.
 
 ## Setup
 

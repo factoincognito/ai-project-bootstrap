@@ -3,11 +3,13 @@
   "files": {
     "includes": [
       "**",
+      "!**/.expo",
+      "!**/android",
       "!**/coverage",
       "!**/dist",
+      "!**/ios",
       "!**/node_modules",
-      "!**/playwright-report",
-      "!**/test-results"
+      "!**/web-build"
     ]
   },
   "assist": {
