@@ -13,6 +13,12 @@ This repo was created from the bootstrapper with "Use this template".
 The template version it came from is recorded in `CHANGELOG.md`. Do
 these steps once, then delete this whole section.
 
+The files you got here are generated from the template at
+https://github.com/factoincognito/ai-project-template-v2. To change the
+bootstrapper itself, change the template there. A change made in the
+bootstrapper repo is overwritten at the next release, and one made in a
+copy never reaches it; neither has tests.
+
 1. **Copy in a language pack** from `languages/` (`node`, `web`,
    `python` or `react-native`). A bootstrap wizard that does this for
    you is planned but not written yet, so by hand:
@@ -34,7 +40,12 @@ these steps once, then delete this whole section.
    | react-native: `starter/src/` | `src/` |
 
    Then follow the pack's `code-standards.md` ("First-time setup"). Once
-   the pack is in place you can delete the `languages/` folder.
+   the pack is in place, clean up `languages/`: delete the other packs,
+   and in the pack you used delete everything except `code-standards.md`
+   (for the web pack, copy the deploy files out first if you want them).
+   This is required: left as it is, the folder breaks the project's own
+   CI, because Biome stops on the nested pack configs and Jest runs the
+   other packs' tests.
 2. **Turn on branch protection** for `main` (Settings, Branches): require
    a pull request with **no** required approvals (every PR is opened
    under your own account, and GitHub does not let authors approve their

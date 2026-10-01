@@ -97,7 +97,7 @@ green. Then close it without merging. A setting that shows as "on" is
 not proof on its own.
 
 **In the template repo.** The template's own `main`
-(https://github.com/sugose/ai-project-template-v2) is protected the
+(https://github.com/factoincognito/ai-project-template-v2) is protected the
 same way, with two required checks: `build` and `bootstrapper-test`.
 The second tests the template's release pipeline, which projects do not
 have. A project sets its own required checks and does not copy the
@@ -108,7 +108,11 @@ template's.
 **CI runs on every push to any branch and on every pull request to
 `main`** (GitHub Actions, `.github/workflows/ci.yml`). A new project
 starts with a stub `ci.yml` that only checks out the code; the language
-pack's `ci.yml` replaces it.
+pack's `ci.yml` replaces it. The stub has no test-first check because,
+with no pack, there is no `src/` to define code by. In the template
+repository itself `ci.yml` is not the stub: its `build` runs the same
+check, with patterns for the template's scripts, workflows and pack
+files.
 
 The rules every pack's CI follows:
 
@@ -117,6 +121,15 @@ The rules every pack's CI follows:
   check that never arrives, until the required check is changed too.
 - **Green on day one.** A fresh project passes its own CI with no
   changes; each pack ships a placeholder or starter test for that.
+- **A code change comes with a test change.** After the checkout, the
+  first step of `build` runs `.github/scripts/require-test-change.sh` with the pack's patterns
+  and fails a pull request that changes code without changing a test. A
+  change no test can check carries a `Test-exempt: <reason>` commit
+  trailer, which the job summary shows for the reviewer. The checkout
+  needs `fetch-depth: 0` so the base branch is there to compare with. The
+  check sees file names only: whether the test exercises the code is for
+  review. To run it locally, give it the base with `TEST_FIRST_BASE`;
+  each pack's `code-standards.md` has the full command.
 - **CI enforces what a tool can check.** Where `code-standards.md`
   states a rule a tool can check (types, lint, formatting, the 80% line
   coverage gate), CI fails when it is broken. Rules no tool checks are
@@ -135,9 +148,9 @@ tests, so it is only safe once branch protection requires `build`.
 ### 6. Commits, branches and pull requests
 
 - **One PR, one change.** Unrelated changes never share a PR.
-- **Branch names:** `feature/<short-description>` or
-  `fix/<short-description>`, e.g. `feature/udp-listener`,
-  `fix/multicast-join-error`.
+- **Branch names:** `feat/<short-description>`,
+  `fix/<short-description>` or `docs/<short-description>`, e.g.
+  `feat/udp-listener`, `fix/multicast-join-error`.
 - **Commit messages:** imperative, present tense, specific. Say what the
   commit does, not what you did. Good: `Add configurable UDP listener
   with multicast support`. Bad: `Added stuff`, `WIP`, `fix`.
@@ -161,7 +174,7 @@ management (until there is a secret).
 Each pack's `code-standards.md` is the reference for its rules and
 commands. It sits in `languages/<pack>/` in a new project; if that
 folder has been deleted after setup, the same file is in the template
-repo at https://github.com/sugose/ai-project-template-v2/tree/main/languages.
+repo at https://github.com/factoincognito/ai-project-template-v2/tree/main/languages.
 
 ### Python (`python` pack)
 
@@ -220,7 +233,7 @@ has already replaced `socket.socket` with a mock. Build the mock before
 the patch and hand it in:
 
 ```python
-mock_sock = MagicMock(spec=socket.socket)   # before the patch
+mock_sock = MagicMock(spec=socket.socket)  # before the patch
 with patch("socket.socket", return_value=mock_sock):
     ...
 ```

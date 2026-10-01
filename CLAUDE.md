@@ -1,6 +1,25 @@
 # [PROJECT NAME] — Agent Entry Point
 
-This file is read by two agents. Read your section only.
+This file is read by two agents. Read this section and your own.
+
+---
+
+## Both agents: test first
+
+Test first, and nothing is claimed as working without a check that has
+run. Before changing behaviour, write a check that fails without the
+change and run it to see it fail; then make it pass. Say "done",
+"works" or "fixed" only after a check that tests that exact claim has
+run and passed, and name it. This covers code, scripts, CI workflows and
+config that changes what is built; prose (docs, backlog, decisions,
+notes) is exempt. Any other exception is stated in a `Test-exempt:
+<reason>` trailer line in a commit message, which CI shows and the
+reviewer judges. Once a language pack's CI is in place, its `build`
+fails a pull request that changes code (in a project, `src/`, and
+`index.html` for the web pack) without changing a test; what counts as
+code and as a test is listed in that step of `.github/workflows/ci.yml`.
+Details: `docs/CROG_ONBOARDING.md` (TDD rules), `memory/standards.md`
+(review).
 
 ---
 
@@ -72,6 +91,47 @@ starts with only the diff and `memory/standards.md` as input. The
 Chrome web-editor path (proven 2026-07-23) is the fallback when Clead
 has no git or API access.
 
+### Model and effort
+
+Which model and effort each role runs on (Adam, 2026-10-01):
+
+- **Default.** Clead sessions run on Sonnet at High effort. Medium is
+  fine for a purely mechanical batch (docs, backlog, changelog, merges).
+- **Opus for review and design.** Reviews of code, process and
+  architecture changes (docs-only ones included) and architecture design
+  drafts run in a separate agent started on Opus, including the Crog
+  agents Clead starts to review. Merge-only runs and the writing of
+  docs, backlog and changelog use the default model.
+- **Clead recommends the switch.** Clead cannot read or change the
+  model or effort of its own session. Before a task that warrants a
+  different setting, Clead says which one it recommends and waits for
+  Adam to switch or say proceed. When the work changes character, Clead
+  says when to switch back.
+- **Who sets what.** Clead sets the model of the agents it starts.
+  Adam sets the model and effort of the Claude app session and of the
+  Crog tab in VS Code.
+
+### Working unattended
+
+Adam can hand Clead and Crog a scoped general instruction and step away
+(first used overnight on 2026-09-30: "Phase 1 and 2 items that need no
+decision, until stuck"). While he is away:
+
+- Clead works inside the stated scope only, through the normal loop:
+  every change by PR, review by the role that did not write it, Crog
+  merges on a green build with any required review and intent approval
+  in place. No rule is relaxed because Adam is not watching.
+- Anything that needs Adam is parked in `docs/NEXT_SESSION.md` instead
+  of guessed: a decision, an intent approval, a review escalated after
+  3 rounds, anything the change execution model says to ask Adam about
+  (rule 6), anything irreversible that could reasonably go either way.
+  Intent approval is never assumed. Work that does not depend on it
+  carries on.
+- Progress is posted as it happens (PR comments and chat), not saved
+  for one final report.
+- On his return, Clead reports what merged (verified against GitHub,
+  not relayed), what is parked and why, and what is open.
+
 ### Session startup — do this first, every session
 1. Read `memory/context.md` — narrative context that doesn't fit elsewhere
 2. Read and triage `docs/NEXT_SESSION.md` — staging area for reasoning
@@ -86,26 +146,37 @@ has no git or API access.
 5. Derive current PBI from open PRs and `docs/BACKLOG.md`
 6. Ask Adam what today's work is
 
-### Session end — type `..wrap` to flush memory
+### Session end — type `..wrap` to check the session is clean
 `..wrap` is the stop word that signals end of session. There is no
-automatic session-end hook — if Adam closes the session without `..wrap`,
-nothing is written. When Adam types `..wrap`, before responding:
-1. Append any new decisions made this session to `memory/decisions.md`.
-2. Update `memory/context.md` with session reasoning that doesn't fit
-   a structured file.
-3. Update `memory/project.md` if project scope or goals changed.
-4. Show Adam the diff of every memory file touched.
-5. Confirm what was persisted and what was deliberately left out.
-
-`..wrap` is the explicit flush, not a safety net. Keep event-based
-writes as the backstop: persist when a decision is made and when a PR
-opens, regardless of whether `..wrap` is typed.
+automatic session-end hook: closing the session without `..wrap` checks
+nothing. Event-based writes are the main mechanism (persist when a
+decision is made and when a PR opens, whether or not `..wrap` is
+typed); `..wrap` is the check that catches what they missed. When Adam
+types `..wrap`, before responding:
+1. Give every `docs/NEXT_SESSION.md` entry touched this session a
+   disposition (graduation rule below), and resolve every open pin
+   (PIN workflow below).
+2. Open PRs for anything agreed in the session but not yet written
+   down, including pins Adam promotes: decisions to
+   `memory/decisions.md`; session reasoning that cannot be derived from
+   the repo to `memory/context.md`; changes of scope or goals to
+   `memory/project.md`.
+3. Run the Clean session end state checklist below, last, so it checks
+   the state after steps 1 and 2. Each condition is checked directly
+   this session, not carried over from an earlier report. A PR opened
+   in step 2 goes through the normal review and merge loop (change
+   execution model) and must be merged and verified, or left open with
+   Adam's knowledge and a stated reason, before the session counts as
+   clean.
+4. Report: clean, or what is open and why. Link the PRs from step 2 and
+   show Adam the diff of every memory file touched.
 
 **Graduation rule:** every `docs/NEXT_SESSION.md` entry touched this
 session must be promoted (to a PBI, a decision, or a formal doc update),
 re-affirmed as still-next, or deleted as resolved/obsolete before the
 session is considered clean. Without this it silently forks into a
-second, competing backlog instead of a staging area.
+second, competing backlog instead of a staging area. `..wrap` enforces
+it.
 
 ### The PIN workflow
 
