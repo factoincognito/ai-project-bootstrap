@@ -7,5 +7,5 @@ All notable changes to [PROJECT NAME] are documented here.
 ## Project created
 
 - Bootstrapped from the Clead + Crog project template
-  v2.3.0, built from
-  factoincognito/ai-project-template-v2@fbc748d845427535135e2ebfaaf1b35fb24389d3.
+  v2.4.0, built from
+  factoincognito/ai-project-template-v2@7dd7fd08c423fa4ff3913643897c758ab1dc11fd.

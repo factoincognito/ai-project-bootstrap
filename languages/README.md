@@ -16,10 +16,10 @@ project changes them as it needs to.
 | `react-native/` | A mobile app for Android and iOS, built with React Native and Expo | Biome lint and format, TypeScript type check, Jest (jest-expo) unit and component tests with an 80% line coverage gate. No device, simulator or app-store builds |
 
 The web pack also has an optional deploy to Cloudflare (`deploy.yml`,
-`wrangler.jsonc`). Where each file goes is listed in the project's
-README ("Creating a project from the template", or "After
-bootstrapping" in a bootstrapped project), and each pack's
-`code-standards.md` explains how to work with it.
+`wrangler.jsonc`). The setup script, `bootstrap-project.sh`, lays the
+chosen pack out in a new project; where each file goes is its layout
+table, and each pack's `code-standards.md` explains how to work with
+it.
 
 ## What every pack contains
 
@@ -58,8 +58,17 @@ Every pack follows the same shape. A new pack should too:
   direct dependencies, and its `code-standards.md` says what that
   leaves unpinned.
 - **Every file has a place.** Each file in a pack except
-  `code-standards.md` must appear in the placement table in the README,
-  so nothing is copied by guesswork.
+  `code-standards.md` must be placed by the layout table of the
+  bootstrap script, `bootstrap-project.sh` (its `layout-pack` command):
+  by a row of its own or by a folder row (such as `starter/src/`), so
+  nothing is copied by guesswork. The web pack's deploy files are placed
+  only with `--with-deploy`. That table is the only one. To lay a pack
+  out by hand, in the template repository run
+  `bash tools/layout-pack.sh <pack> <empty folder>`; the script's own
+  `bash bootstrap-project.sh layout-pack <pack> <empty folder>`
+  works only in the bootstrapper, where the script sits next to
+  `languages/`.
+  Then copy what it lays out.
 - **Nothing project-specific.** Placeholders like `[project-name]`
   instead of project names, service names or domains. Those belong to
   the project.
@@ -68,8 +77,7 @@ Every pack follows the same shape. A new pack should too:
 
 1. Create `languages/<name>/` with the files above, modelled on the
    closest existing pack.
-2. Add every file to the placement table in the template repo's
-   README and in the bootstrapper's README stub, so projects get it
+2. Add every file to the script's layout table, so projects get it
    too.
 3. Lay it out in a scratch project and run its CI commands until they
    pass. Then break one rule on purpose for each thing CI is meant to
@@ -80,9 +88,14 @@ Every pack follows the same shape. A new pack should too:
 In the template repository
 (https://github.com/factoincognito/ai-project-template-v2), each pack is also
 tested on GitHub's own runners on every pull request, by the
-template-only workflow `.github/workflows/packs.yml` and the layout
-script `tools/layout-pack.sh`. A new pack gets a job there, and its
-files are added to the script's layout table.
+template-only workflow `.github/workflows/packs.yml`, which lays each
+pack out with `tools/layout-pack.sh`, a wrapper around the
+`layout-pack` command of `bootstrap/stubs/bootstrap-project.sh`. The
+layout table lives in that script. A new pack gets a job in
+`packs.yml`, its files are added to the script's layout table and to
+both README tables, and the expected paths in
+`tools/test-layout-pack.sh`, a deliberate second statement of the
+table, are changed with them.
 
 ## Keeping packs current
 

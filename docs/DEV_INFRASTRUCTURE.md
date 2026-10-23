@@ -75,8 +75,15 @@ approvals: every PR is opened under the owner's own GitHub account, and
 GitHub does not let authors approve their own PRs. Review happens as a
 verdict comment instead (see `CLAUDE.md`, "Change execution model").
 
-**Turning it on in a new project** (repo owner, once, after the first
-push of the pack's `ci.yml`):
+**Turning it on in a new project.** The setup script,
+`bootstrap-project.sh` (see the README of
+https://github.com/factoincognito/ai-project-template-v2), does this:
+it protects `main` right after it creates the project, and adds `build`
+as a required check once the setup pull request's `build` has passed.
+It then reads the protection back and reports it. The steps below are
+the fallback, for a project set up without the script or whose
+protection was changed by hand (repo owner, once, after the first push
+of the pack's `ci.yml`):
 
 1. Push a branch and let CI run once. The required-checks picker only
    offers checks that have run in the repo recently.
@@ -100,7 +107,20 @@ not proof on its own.
 (https://github.com/factoincognito/ai-project-template-v2) is protected the
 same way, with two required checks: `build` and `bootstrapper-test`.
 The second tests the template's release pipeline, which projects do not
-have. A project sets its own required checks and does not copy the
+have. Its workflow (`bootstrapper.yml`) runs on pull requests to `main`
+and pushed `v*` tags only, not on branch pushes, and a newer push to a
+pull request cancels the older run. After a merge, that workflow does
+not run on `main`: the required checks are not strict ("require
+branches to be up to date" is off), so a pull request's run can predate
+another pull request's merge, and the workflow's suites and its OS
+matrix do not run on the combined tree until a `v*` tag, whose run
+still gates the release. The template's `ci.yml` and `packs.yml` do run
+on `main` after every merge, because they trigger on pushes to any
+branch. Retargeting a stacked
+pull request's base to `main` is an `edited` event, which is not among
+the default `pull_request` event types, so `bootstrapper-test` stays
+missing (and the merge blocked) until a new push or a close and reopen.
+A project sets its own required checks and does not copy the
 template's.
 
 ### 5. CI/CD
