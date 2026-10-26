@@ -50,9 +50,16 @@
 #   BOOTSTRAP_OS_RELEASE  the Linux release file (default: /etc/os-release).
 #   BOOTSTRAP_SLEEP  the command that waits between two checks of GitHub
 #                  (default: sleep). It gets the seconds as its argument.
+#   BOOTSTRAP_STDOUT_TERMINAL  yes or no: whether the output goes to a
+#                  terminal, where the wait for build shows a * a second
+#                  (default: asked of the shell, [ -t 1 ]).
 #   BOOTSTRAP_NPM  the npm the lockfile step runs (default: npm on the
 #                  PATH), so the tests never reach the npm registry. The
 #                  check that npm is installed runs the npm on the PATH.
+#   BOOTSTRAP_COLOR  set (not empty): the lines the user acts on are in
+#                  colour as at a terminal, though the output goes to a
+#                  file. NO_COLOR, set and not empty, and TERM=dumb still
+#                  turn colour off (see colour_on).
 #
 # Sourcing this file defines its functions and runs nothing (the tests
 # load it that way); running it with bash runs the main part at the end.
@@ -63,8 +70,8 @@ set -euo pipefail
 # and these hold the placeholders. These two lines are the only place a
 # placeholder may appear: the build refuses any left in its output, so
 # code compares against these variables, never a literal placeholder.
-SCRIPT_VERSION='v2.4.0'
-SCRIPT_COMMIT='7dd7fd08c423fa4ff3913643897c758ab1dc11fd'
+SCRIPT_VERSION='v2.5.0'
+SCRIPT_COMMIT='11e949e100247b11740e30ae33b7c4d976d538ed'
 
 # State of the stop handling (see catch_stops): CLEAN is set by every
 # deliberate stop, CURRENT_STEP is the step being done.
@@ -130,15 +137,92 @@ show_help() {
     "An option takes its value after a space or after =, as in --name=my-app."
 }
 
-# say <text>: one line of information.
-say() { printf '%s\n' "$*"; }
+# say_open <text>: text with no line break after it, so more can follow
+# on the same line (the signs of life of the wait for build). The next
+# message of any helper below ends that line first (end_line).
+LINE_OPEN=""
+say_open() { printf '%s' "$*"; LINE_OPEN=1; OUT_BLANK=""; }
+end_line() {
+  [ -z "$LINE_OPEN" ] || printf '\n'
+  LINE_OPEN=""
+}
+
+# Two kinds of output (finding 8 of the first end-to-end run): the
+# progress log (step_start, step_end, and say while the script works),
+# plain; and what the script says to the user: a question (ask,
+# prompt_for, ask_terminal, wait_for_enter), the plan (say_heading), a
+# guide (guide_begin to guide_end), a stop (show_error, and the command
+# shown above it), the command to continue shown before the first change
+# (ADVANCE_INTRO), and the closing "What to do next" line. Each of those
+# blocks starts with block_start: it ends an open line first (end_line),
+# then prints one blank line, unless the last line printed was blank
+# already (or nothing is printed yet), so there are never two in a row.
+# The blank line goes to stdout, after the log it closes, also before a
+# stop on stderr, whose first line stays "What happened". OUT_BLANK
+# tracks the last line: every helper that prints sets it. Output that
+# does not go through the helpers (an offered command's own) is not seen;
+# at worst a blank line is then left out, never doubled.
+OUT_BLANK=1
+block_start() {
+  end_line
+  [ -n "$OUT_BLANK" ] || printf '\n'
+  OUT_BLANK=1
+}
+
+# The lines the user acts on or reads first (a question with its default,
+# the plan's heading, "Proceed?", "What to do next") are in one colour,
+# bold cyan, and nothing else is. colour_on [err]: colour is used when the
+# stream the line goes to is a terminal (stdout_is_terminal, whose hook
+# BOOTSTRAP_STDOUT_TERMINAL counts too; [ -t 2 ] for a line on stderr),
+# or BOOTSTRAP_COLOR is set (a test hook that forces colour); never when
+# NO_COLOR is set and not empty (https://no-color.org), which wins over
+# all of these, or when TERM is dumb.
+colour_on() {
+  [ -z "${NO_COLOR:-}" ] || return 1
+  [ "${TERM:-}" != dumb ] || return 1
+  [ -z "${BOOTSTRAP_COLOR:-}" ] || return 0
+  if [ "${1:-}" = err ]; then [ -t 2 ]; else stdout_is_terminal; fi
+}
+
+# painted <text> [err]: the text, in colour when colour_on (err: for a
+# line on stderr), with the colour reset straight after it; no line
+# break, so what the user types after a question is not coloured.
+painted() {
+  if colour_on "${2:-}"; then
+    printf '\033[1;36m%s\033[0m' "$1"
+  else
+    printf '%s' "$1"
+  fi
+  OUT_BLANK=""
+}
+
+# say_heading <text>: the first line of a block the user reads (the
+# plan), after a blank line, in colour.
+say_heading() {
+  block_start
+  painted "$*"
+  printf '\n'
+}
+
+# say <text>: one line of information. A line that tells the user what
+# to do next (the closing one of the report) is a block of its own, in
+# colour; the line above a command to start again or to continue opens a
+# block of its own, plain.
+say() {
+  case "$*" in
+    "What to do next: "*) say_heading "$*" ;;
+    "$START_AGAIN_INTRO" | "$CONTINUE_INTRO" | "$ADVANCE_INTRO") block_start; printf '%s\n' "$*"; OUT_BLANK="" ;;
+    "") end_line; printf '\n'; OUT_BLANK=1 ;;
+    *) end_line; printf '%s\n' "$*"; OUT_BLANK="" ;;
+  esac
+}
 
 # say_command <command>: a command for the user to copy, indented.
-say_command() { printf '    %s\n' "$*"; }
+say_command() { end_line; printf '    %s\n' "$*"; OUT_BLANK=""; }
 
 # step_start <what>, step_end <result>: the first and last line of a step.
-step_start() { CURRENT_STEP="$*"; printf '==> %s\n' "$*"; }
-step_end() { printf '    Done. %s\n' "$*"; }
+step_start() { end_line; CURRENT_STEP="$*"; printf '==> %s\n' "$*"; OUT_BLANK=""; }
+step_end() { end_line; printf '    Done. %s\n' "$*"; OUT_BLANK=""; }
 
 # show_error <what happened> <what to do next> [raw text]: an error in
 # plain words with the next action, on stderr. Raw text (an error from a
@@ -147,9 +231,11 @@ show_error() {
   local what="${1:-}" next="${2:-}" raw="${3:-}"
   [ -n "$what" ] || what="Something unexpected happened."
   [ -n "$next" ] || next="Run the script again. If the same thing happens, ask for help and show the details below."
+  block_start
   {
     printf 'What happened: %s\n' "$what"
-    printf 'What to do next: %s\n' "$next"
+    painted "What to do next: $next" err
+    printf '\n'
     [ -z "$raw" ] || details_block "$raw"
   } >&2
 }
@@ -159,6 +245,7 @@ show_error() {
 # comes alone: show_error and guide_details put it under a plain message.
 details_block() {
   local line
+  OUT_BLANK=""
   printf 'Details for support (you can ignore these):\n'
   printf '%s\n' "$1" | tr -d '\r' | while IFS= read -r line; do
     printf '    %s\n' "$line"
@@ -185,6 +272,8 @@ ASK_NEEDED="An answer is needed here."
 OPTIONS_NEXT="To see every option, run the script with --help."
 START_AGAIN_INTRO="To start again, run this command:"
 CONTINUE_INTRO="To continue the setup, run this command:"
+# Shown once, after the yes and before the first change (show_advance_command).
+ADVANCE_INTRO="If the setup stops before it finishes, for any reason, also with Ctrl-C or a closed window, continue it with the command below. Copy it now and keep it until the setup has finished:"
 # The plan and step 10 give it for a public project with no licence.
 NO_LICENCE_WARNING="Warning: the project is public and has no licence: anyone can see its code, but nobody else may copy, change or share it. To add a licence later, see https://choosealicense.com."
 
@@ -198,13 +287,15 @@ NO_LICENCE_WARNING="Warning: the project is public and has no licence: anyone ca
 ask() {
   local why="$1" question="$2" default="$3" got=""
   shift 3
+  block_start
   printf '%s\n' "$why"
   [ "$#" -eq 0 ] || printf '  %s\n' "$@"
   if [ -n "$default" ]; then
-    printf '%s [%s]: ' "$question" "$default"
+    painted "$question [$default]:"
   else
-    printf '%s: ' "$question"
+    painted "$question:"
   fi
+  printf ' '
   if ! IFS= read -r got && [ -z "$got" ]; then
     printf '\n'
     return 1
@@ -218,7 +309,9 @@ ask() {
 # (or stop) or stdin has no more lines, else 0 (check again).
 wait_for_enter() {
   local got=""
-  printf 'Press Enter to check again, or type q to stop: '
+  block_start
+  painted 'Press Enter to check again, or type q to stop:'
+  printf ' '
   if ! IFS= read -r got && [ -z "$got" ]; then
     printf '\n'
     return 1
@@ -241,7 +334,10 @@ wait_for_enter() {
 # fails, the read does not run, got stays empty, and that is not a yes.
 ask_terminal() {
   local tty="${BOOTSTRAP_TTY:-/dev/tty}" got=""
-  printf '%s\n%s [no]: ' "$1" "$2"
+  block_start
+  printf '%s\n' "$1"
+  painted "$2 [no]:"
+  printf ' '
   if [ ! -r "$tty" ]; then
     printf '\n'
     return 1
@@ -267,14 +363,18 @@ GUIDE_N=0
 guide_begin() {
   GUIDE_TITLE="$1"
   GUIDE_N=0
+  block_start
   printf '%s\n' "$1" "Why this is needed: $2"
+  OUT_BLANK=""
 }
 guide_step() {
   GUIDE_N=$((GUIDE_N + 1))
   printf '  %s. %s\n' "$GUIDE_N" "$*"
+  OUT_BLANK=""
 }
 guide_end() {
   printf '%s\n' "When it has worked: $1" "If you see something else: $2" "How the script checks it: $3"
+  OUT_BLANK=""
 }
 # guide_details <raw text>: after guide_end, the raw text of what went
 # wrong (gh's or GitHub's own words), for support; nothing when empty.
@@ -960,6 +1060,7 @@ check_options() {
 }
 
 collect_inputs() {
+  local po_default_from
   check_options
 
   # Then each one not given, in the order of the questions.
@@ -991,8 +1092,16 @@ collect_inputs() {
   fi
   if [ -z "$IN_PO_NAME" ]; then
     need_github_account
+    # The explanation says where the default comes from (end-to-end run
+    # 1, finding 4). GH_LOGIN is never empty here, so there is always a
+    # default.
+    if [ -n "$GH_PROFILE_NAME" ]; then
+      po_default_from="The default is the name on the GitHub profile of $GH_LOGIN, the account gh is signed in to."
+    else
+      po_default_from="The default is $GH_LOGIN, the name of the GitHub account gh is signed in to, because its profile has no name."
+    fi
     answer --po-name check_table_text "${GH_PROFILE_NAME:-$GH_LOGIN}" \
-      "The name of the product owner, the person who decides what the project should do (usually you)." \
+      "The name of the product owner, the person who decides what the project should do (usually you). $po_default_from" \
       "Product owner name" || true
     IN_PO_NAME="$CHECKED"
   fi
@@ -2212,6 +2321,10 @@ PROJECT_PROBLEM=""
 PROJECT_DONE=""
 check_project_absent() {
   PROJECT_PROBLEM=""
+  # Each check starts again from what the user gave: the "start again"
+  # choice of an earlier project-missing guide holds only until the next
+  # answer (found, or a failure that says nothing about the project).
+  FRESH_START=""
   api_call "repos/$IN_OWNER/$IN_NAME"
   case "$API_STATUS" in
     404)
@@ -2262,7 +2375,7 @@ guide_project_missing() {
   guide_begin "There is no project named $IN_OWNER/$IN_NAME on GitHub to continue." \
     "--resume continues a setup of a project that exists on GitHub, and the script never creates a project when it is asked to continue one."
   guide_step "Check the name and the owner for a typing mistake: they are the values after --name and --owner in the command shown below."
-  guide_step "To set up a new project with this name, start the script again with the command shown below, which has no --resume."
+  guide_step "If the setup stopped before it created the project, or to set up a new project with this name, start the script again with the command shown below, which has no --resume."
   guide_end "the script says \"Done. The project $IN_OWNER/$IN_NAME exists on GitHub, which --resume allows.\" or, without --resume, creates the project." \
     "if the project is private, check that gh is signed in to the account that can see it." \
     "it asks GitHub for a project at that address, and GitHub answers that there is none."
@@ -2351,6 +2464,94 @@ pause_for() {
   "${BOOTSTRAP_SLEEP:-sleep}" "$1"
 }
 
+# plan_steps [state]: the six steps of the setup, in the words of the
+# plan. A new setup (no state) shows them as they are, under the heading
+# show_plan gives; --resume shows the
+# same list, each step marked from RESUME_STATE (end-to-end run 1,
+# finding 7), so the two lists cannot drift apart. (next) is the first
+# step run_steps carries out in that state: template and fresh go on at
+# the protection (fresh has its copy already); saved, sent and proposed go
+# on in step 5, but sent and proposed first make a new copy when there is
+# none (resume_copy); added only re-checks the protection, brings a copy
+# that is there up to date, and reports (resume_added makes no copy).
+plan_steps() {
+  local state="${1:-}" marks="- - - - - -" m1 m2 m3 m4 m5 m6
+  case "$state" in
+    template) marks="done next - - - -" ;;
+    fresh) marks="done next done - - -" ;;
+    saved) marks="done done done done next -" ;;
+    sent | proposed)
+      if [ -n "$COPY_PRESENT" ]; then marks="done done done done next -"; else marks="done done next done - -"; fi
+      ;;
+    added)
+      if [ -n "$COPY_PRESENT" ]; then marks="done done done done done next"; else marks="done done skipped done done next"; fi
+      ;;
+  esac
+  # shellcheck disable=SC2086 # the marks are split into the six words on purpose
+  set -- $marks
+  step_mark "$1"; m1="$STEP_MARK"
+  step_mark "$2"; m2="$STEP_MARK"
+  # Past the protection with --allow-unprotected, the run that stopped may
+  # have gone on without it.
+  if [ "$2" = done ] && [ -n "$OPT_ALLOW_UNPROTECTED" ]; then m2=" (done, or skipped with --allow-unprotected)"; fi
+  step_mark "$3"; m3="$STEP_MARK"
+  step_mark "$4"; m4="$STEP_MARK"
+  step_mark "$5"; m5="$STEP_MARK"
+  step_mark "$6"; m6="$STEP_MARK"
+  # show_plan gives a new setup's heading itself.
+  [ -z "$state" ] || say_heading "The steps, in this order: (done) marks a step that is done already, and (next) the step the setup continues with."
+  say "  1. Create the project on GitHub, with the bootstrapper's files in it.$m1"
+  say "  2. Protect its main version, so that from then on every change comes as a proposed change, not straight into it.$m2"
+  say "  3. Make a copy of the project on this computer, in $IN_DIR.$m3"
+  if [ "$4" = done ]; then
+    # Done in the run that stopped, with the licence chosen then, which
+    # this run's answer need not be.
+    say "  4. Add the language pack's files, fill in the project's names and description, and add the licence that was chosen, if one was.$m4"
+  elif [ "$IN_LICENSE" = none ]; then
+    say "  4. Add the language pack's files and fill in the project's names and description; no licence file is added, because you chose none.$m4"
+  else
+    say "  4. Add the language pack's files, fill in the project's names and description, and add the licence $IN_LICENSE.$m4"
+  fi
+  say "  5. Send these changes to GitHub as one proposed change, wait for the project's checks to pass, then add the change to the main version.$m5"
+  say "  6. Show what was made, and the one thing to do next.$m6"
+}
+
+# step_mark <done|next|skipped|->: STEP_MARK is the text put after a step.
+STEP_MARK=""
+step_mark() {
+  case "$1" in
+    done) STEP_MARK=" (done)" ;;
+    next) STEP_MARK=" (next)" ;;
+    skipped) STEP_MARK=" (skipped: the script makes no copy of a project that is set up already)" ;;
+    *) STEP_MARK="" ;;
+  esac
+}
+
+# duration_words <seconds>: DURATION is the time in words, such as
+# "1 minute 15 seconds" or "20 minutes".
+duration_words() {
+  local m=$(($1 / 60)) s=$(($1 % 60)) mw="minutes" sw="seconds"
+  [ "$m" -ne 1 ] || mw="minute"
+  [ "$s" -ne 1 ] || sw="second"
+  if [ "$m" -eq 0 ]; then
+    DURATION="$s $sw"
+  elif [ "$s" -eq 0 ]; then
+    DURATION="$m $mw"
+  else
+    DURATION="$m $mw $s $sw"
+  fi
+}
+
+# stdout_is_terminal: true when the output goes to a terminal, or
+# BOOTSTRAP_STDOUT_TERMINAL says yes (the tests' stand-in for one).
+stdout_is_terminal() {
+  case "${BOOTSTRAP_STDOUT_TERMINAL:-}" in
+    yes) return 0 ;;
+    no) return 1 ;;
+  esac
+  [ -t 1 ]
+}
+
 show_plan() {
   local vis licence deploy=""
   if [ "$IN_VISIBILITY" = private ]; then
@@ -2364,7 +2565,7 @@ show_plan() {
     licence="$IN_LICENSE, in the name of $IN_COPYRIGHT_HOLDER"
   fi
   [ "$IN_WITH_DEPLOY" != yes ] || deploy=", with the files that publish the website"
-  say "Here is the plan. Nothing has been created yet."
+  say_heading "Here is the plan. Nothing has been created yet."
   say "The project:"
   say "    On GitHub: $IN_OWNER/$IN_NAME, $vis"
   say "    Its page: https://github.com/$IN_OWNER/$IN_NAME"
@@ -2375,18 +2576,10 @@ show_plan() {
   say "    Licence: $licence"
   say "    Copy on this computer: $IN_DIR"
   say "    Your name and email for git: $IN_GIT_NAME, $IN_GIT_EMAIL"
-  say "    Waiting for the project's checks: up to $IN_CI_TIMEOUT minutes"
+  duration_words $((IN_CI_TIMEOUT * 60))
+  say "    Waiting for the project's checks: at most $DURATION; if build has not passed by then, the script stops, leaves the proposed change open and shows how to continue (--ci-timeout sets a different limit)"
   say "The steps, in this order:"
-  say "  1. Create the project on GitHub, with the bootstrapper's files in it."
-  say "  2. Protect its main version, so that from then on every change comes as a proposed change, not straight into it."
-  say "  3. Make a copy of the project on this computer, in $IN_DIR."
-  if [ "$IN_LICENSE" = none ]; then
-    say "  4. Add the language pack's files and fill in the project's names and description; no licence file is added, because you chose none."
-  else
-    say "  4. Add the language pack's files, fill in the project's names and description, and add the licence $IN_LICENSE."
-  fi
-  say "  5. Send these changes to GitHub as one proposed change, wait for the project's checks to pass, then add the change to the main version."
-  say "  6. Show what was made, and the one thing to do next."
+  plan_steps
   # Step 4 adds no licence: the warning step 10 gives, before anything
   # is created.
   if [ "$IN_LICENSE" = none ] && [ "$IN_VISIBILITY" != private ]; then
@@ -2399,25 +2592,44 @@ show_plan() {
   fi
 }
 
-# confirm_plan: "Proceed?", unless --yes. The default is no; a no stops
-# with nothing created (exit 1). --non-interactive without --yes never
-# gets here: cmd_setup refuses it with the other option problems.
+# confirm_plan: "Proceed?", unless --yes. The default is no, because it
+# is the safe answer: a stray Enter must create or change nothing, and
+# the explanation says so. A no stops with nothing created (exit 1).
+# --non-interactive without --yes never gets here: cmd_setup refuses it
+# with the other option problems.
 confirm_plan() {
   [ -z "$OPT_YES" ] || return 0
   if [ -n "$OPT_RESUME" ]; then
     prompt_for check_yes_no \
-      "If you answer yes, the script continues the setup as described above; if you answer no, it stops and changes nothing." \
+      "If you answer yes, the script continues the setup as described above; if you answer no, it stops and changes nothing. Pressing Enter alone answers no, so nothing is changed by accident; type yes to go on." \
       "Proceed? (yes or no)" no
     [ "$CHECKED" != yes ] || return 0
     fail 1 "You answered no, so the script stopped, and nothing was changed." \
       "To continue the setup, run the script again and answer yes."
   fi
   prompt_for check_yes_no \
-    "If you answer yes, the script creates the project on GitHub and carries out the plan above; if you answer no, it stops and creates nothing." \
+    "If you answer yes, the script creates the project on GitHub and carries out the plan above; if you answer no, it stops and creates nothing. Pressing Enter alone answers no, so nothing is created by accident; type yes to go on." \
     "Proceed? (yes or no)" no
   [ "$CHECKED" != yes ] || return 0
   fail 1 "You answered no, so the script stopped, and nothing was created." \
     "To set up the project, start the script again and answer yes."
+}
+
+# show_advance_command: after the yes (or --yes) and before the first
+# change on GitHub, the command to continue the setup, with --resume and
+# every answer, shown once. A stop that runs no trap (end-to-end run 1,
+# finding 6: Ctrl-C while gh ran, in Git Bash on Windows, showed no stop
+# message at all) still leaves the user this command. Before the project
+# exists, --resume refuses to create it and shows the command to start
+# again (guide_project_missing), so this command is safe at any stop.
+show_advance_command() {
+  local was="$OPT_RESUME"
+  OPT_RESUME=1
+  shown_command
+  OPT_RESUME="$was"
+  say "$ADVANCE_INTRO"
+  say_command "bash $SHOWN_CMD"
+  [ -n "$OPT_RESUME" ] || say "If the project was not created yet, that command says so and shows the command to start again."
 }
 
 # continue_after_create: the project exists now. From here on, the
@@ -3947,25 +4159,57 @@ build_failed() {
     "$seen"
 }
 
-# wait_for_build: spec step 15.
+# The signs of life of the wait for build (E2E run 1, finding 9): each
+# look after the first starts a line of its own, and on a terminal the
+# line stays open and gets a * for each second of the wait after it.
+# Without a terminal (a log, a pipe) there are no stars, and each wait is
+# one pause of CHECKS_DELAY seconds.
+# wait_line <text>: such a line, after the stars of the line before.
+wait_line() {
+  end_line
+  if stdout_is_terminal; then say_open "$1"; else say "$1"; fi
+}
+# wait_with_signs: the wait of CHECKS_DELAY seconds between two looks.
+wait_with_signs() {
+  local i=0
+  if ! stdout_is_terminal; then
+    pause_for "$CHECKS_DELAY"
+    return 0
+  fi
+  say_open " "
+  while [ "$i" -lt "$CHECKS_DELAY" ]; do
+    pause_for 1
+    say_open "*"
+    i=$((i + 1))
+  done
+}
+
+# wait_for_build: spec step 15. Each look after the first says the time
+# waited so far against the limit (the waits counted, not the time gh
+# takes to answer).
 wait_for_build() {
-  local tries=0 max unit=minutes
-  [ "$IN_CI_TIMEOUT" -ne 1 ] || unit=minute
+  local tries=0 max limit
   PR_NUMBER="${PR_URL##*/}"
-  step_start "Waiting for the project's check build to pass on the proposed change, for up to $IN_CI_TIMEOUT $unit"
+  duration_words $((IN_CI_TIMEOUT * 60))
+  limit="$DURATION"
+  step_start "Waiting for the project's check build to pass on the proposed change, for at most $limit"
+  say "That is the limit: if build has not passed after $limit, the script stops, leaves the proposed change open and shows how to continue (--ci-timeout sets a different limit)."
+  say "You can follow the check here: $PR_URL/checks"
   max=$((IN_CI_TIMEOUT * 60 / CHECKS_DELAY))
   while :; do
     look_at_build
     [ "$BUILD_STATE" != pass ] || break
     [ "$BUILD_STATE" != fail ] || build_failed
     if [ "$tries" -ge "$max" ]; then
-      stop_with_error "The project's check build had not passed on the proposed change after $IN_CI_TIMEOUT $unit, so the script did not add the change to the main version. The proposed change stays open on GitHub." \
+      stop_with_error "The project's check build had not passed on the proposed change after $limit, so the script did not add the change to the main version. The proposed change stays open on GitHub." \
         "Open $PR_URL in your browser and click Checks to see whether build is still running. Then continue the setup with the command shown above; to wait longer, add --ci-timeout and a number of minutes to it, such as --ci-timeout 40." \
         "$BUILD_SEEN"
     fi
-    [ "$tries" -gt 0 ] || say "The check build has not finished yet; the script looks again every $CHECKS_DELAY seconds."
+    [ "$tries" -gt 0 ] || wait_line "The check build has not finished yet; the script looks again every $CHECKS_DELAY seconds."
+    wait_with_signs
     tries=$((tries + 1))
-    pause_for "$CHECKS_DELAY"
+    duration_words $((tries * CHECKS_DELAY))
+    wait_line "Checking the build status ($DURATION of at most $limit)"
   done
   step_end "The check build passed on the proposed change."
 }
@@ -4164,6 +4408,14 @@ finish_copy() {
   step_end "The copy in $IN_DIR is on the main version, with the setup's changes, and nothing is left unsaved.${KEPT_LINE_OF_WORK:+ Its line of work $SETUP_BRANCH was kept: it holds changes that are not in the main version.}"
 }
 
+# say_what_next: the one next step and then, as the very last line the
+# script prints, where to go when stuck (end-to-end run 1, finding 10).
+# One text for every ending of report, so the endings cannot drift.
+say_what_next() {
+  say "What to do next: in the Claude app, create a Claude Project for this project, add the project on GitHub, https://github.com/$IN_OWNER/$IN_NAME, to that Claude Project, and start a chat inside the Claude Project. The file CLAUDE.md in the project tells Claude the rest."
+  say "If you ever feel stuck and do not know how to go on, Clead (Claude, the project's Tech Owner) is always there to help: just ask Clead for help, a recommendation or advice in the chat."
+}
+
 # HAVE_COPY: the copy of the project is on this computer (--resume found
 # the setup already added and no copy, and does not make one).
 HAVE_COPY=1
@@ -4206,12 +4458,8 @@ report() {
     say "    - these rules apply to the project's admins too"
     say "    - nobody may overwrite the history of the main version or delete it"
   fi
-  if [ -n "$CHANGE_ADDED" ]; then
-    say "What to do next: open the Claude app, give it the project, https://github.com/$IN_OWNER/$IN_NAME, and start a chat. The file CLAUDE.md in the project tells Claude the rest."
-  else
-    say_left_for_clead
-    say "What to do next: open the Claude app, give it the new project, https://github.com/$IN_OWNER/$IN_NAME, and start a chat. The file CLAUDE.md in the project tells Claude the rest."
-  fi
+  [ -n "$CHANGE_ADDED" ] || say_left_for_clead
+  say_what_next
 }
 
 # ---------- stops nobody planned for ----------
@@ -4751,11 +4999,13 @@ cmd_setup() {
   preflight_license
   if [ -n "$OPT_RESUME" ]; then
     resume_plan
+    plan_steps "$RESUME_STATE"
     if [ -n "$OPT_DRY_RUN" ]; then
       say "This was a dry run (--dry-run): the checks passed, and nothing was changed."
       exit 0
     fi
     confirm_plan
+    show_advance_command
     run_steps "$RESUME_STATE"
     return 0
   fi
@@ -4765,6 +5015,7 @@ cmd_setup() {
     exit 0
   fi
   confirm_plan
+  show_advance_command
   create_project
   wait_for_files
   run_steps template
