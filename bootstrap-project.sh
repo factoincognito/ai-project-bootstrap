@@ -70,8 +70,8 @@ set -euo pipefail
 # and these hold the placeholders. These two lines are the only place a
 # placeholder may appear: the build refuses any left in its output, so
 # code compares against these variables, never a literal placeholder.
-SCRIPT_VERSION='v2.5.0'
-SCRIPT_COMMIT='11e949e100247b11740e30ae33b7c4d976d538ed'
+SCRIPT_VERSION='v2.6.0'
+SCRIPT_COMMIT='427521506a1c1c784967d5bc77e2999a8f4b5054'
 
 # State of the stop handling (see catch_stops): CLEAN is set by every
 # deliberate stop, CURRENT_STEP is the step being done.
@@ -4052,7 +4052,8 @@ say_left_for_clead() {
   say "  - the name of the first phase, [PHASE NAME], in docs/BACKLOG.md;"
   say "  - the goals, [Goal], and the rest of memory/project.md;"
   say "  - the questions in square brackets in the sections of docs/SPEC.md;"
-  say "  - memory/context.md."
+  say "  - memory/context.md;"
+  say "  - STATUS.md, where the project stands and what comes next."
 }
 
 # ---------- wait, require, add, finish and report ----------
