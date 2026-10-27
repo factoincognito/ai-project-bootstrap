@@ -27,6 +27,7 @@
 #   bash bootstrap-project.sh [options]
 #     Asks for each answer not given as an option, then checks them all.
 #     --help lists the options; --non-interactive asks nothing.
+#     --version prints the version and the commit it was built from.
 #   bash bootstrap-project.sh layout-pack <node|web|python|react-native> <target-dir>
 #     Lays out a language pack in <target-dir>, which must be empty or
 #     absent. The packs are read from PACKS_DIR, by default the
@@ -70,8 +71,8 @@ set -euo pipefail
 # and these hold the placeholders. These two lines are the only place a
 # placeholder may appear: the build refuses any left in its output, so
 # code compares against these variables, never a literal placeholder.
-SCRIPT_VERSION='v2.6.0'
-SCRIPT_COMMIT='427521506a1c1c784967d5bc77e2999a8f4b5054'
+SCRIPT_VERSION='v2.7.0'
+SCRIPT_COMMIT='cb595de00fb4fcedac1a7bb9b1c99aef88d91735'
 
 # State of the stop handling (see catch_stops): CLEAN is set by every
 # deliberate stop, CURRENT_STEP is the step being done.
@@ -111,6 +112,7 @@ show_help() {
     "                             profile name, or your account name)" \
     "  --pack <pack>              node, web, python or react-native (needed)" \
     "  --with-deploy              web only: also add the files that publish the website" \
+    "  --without-deploy           web only: leave those files out (the default)" \
     "  --public, --private        who can see the project (default: public)" \
     "  --license <licence>        none, mit, apache-2.0, gpl-3.0, bsd-3-clause," \
     "                             polyform-noncommercial-1.0.0, or another licence" \
@@ -133,15 +135,30 @@ show_help() {
     "                             version, when a private project cannot be protected" \
     "                             on the GitHub plan" \
     "  --help                     show this text" \
+    "  --version                  show the version of this script" \
     "" \
     "An option takes its value after a space or after =, as in --name=my-app."
+}
+
+# show_version: one line on stdout, the version and the template commit
+# the build stamped in. The unstamped script in the template (the build
+# only stamps a vMAJOR.MINOR.PATCH version) says it is not a release.
+show_version() {
+  case "$SCRIPT_VERSION" in
+    v[0-9]*.[0-9]*.[0-9]*)
+      printf '%s\n' "bootstrap-project.sh $SCRIPT_VERSION, built from factoincognito/ai-project-template-v2@$SCRIPT_COMMIT"
+      ;;
+    *)
+      printf '%s\n' "bootstrap-project.sh, not a release: the copy in factoincognito/ai-project-template-v2 that releases are built from"
+      ;;
+  esac
 }
 
 # say_open <text>: text with no line break after it, so more can follow
 # on the same line (the signs of life of the wait for build). The next
 # message of any helper below ends that line first (end_line).
 LINE_OPEN=""
-say_open() { printf '%s' "$*"; LINE_OPEN=1; OUT_BLANK=""; }
+say_open() { paint 2 "$*"; LINE_OPEN=1; }
 end_line() {
   [ -z "$LINE_OPEN" ] || printf '\n'
   LINE_OPEN=""
@@ -163,20 +180,34 @@ end_line() {
 # does not go through the helpers (an offered command's own) is not seen;
 # at worst a blank line is then left out, never doubled.
 OUT_BLANK=1
+IN_LOG=""
 block_start() {
   end_line
   [ -n "$OUT_BLANK" ] || printf '\n'
   OUT_BLANK=1
+  IN_LOG=""
 }
 
 # The lines the user acts on or reads first (a question with its default,
-# the plan's heading, "Proceed?", "What to do next") are in one colour,
-# bold cyan, and nothing else is. colour_on [err]: colour is used when the
-# stream the line goes to is a terminal (stdout_is_terminal, whose hook
-# BOOTSTRAP_STDOUT_TERMINAL counts too; [ -t 2 ] for a line on stderr),
-# or BOOTSTRAP_COLOR is set (a test hook that forces colour); never when
-# NO_COLOR is set and not empty (https://no-color.org), which wins over
-# all of these, or when TERM is dumb.
+# the plan's heading, "Proceed?", "What to do next", and the instruction
+# line above a command: the texts *_INTRO and a guide step that ends with
+# a colon) are in one colour, bold cyan. A command for the user to copy,
+# or that the script offers to run, is in a second colour, bold green
+# (end-to-end run 1 repeated, finding r1d): green rather than yellow,
+# which is hard to read on a light background, while green reads on both
+# light and dark ones. The progress log is dim (SGR 2), which follows the
+# terminal's own text colour on any background: a step's first and last
+# line, the wait's open line, and a say line inside a step (IN_LOG, from
+# step_start until step_end or a block the user reads starts), except a
+# warning and a line the user may act on (say_note). A terminal that has no dim shows it as plain text. Nothing
+# else is in colour. show_colour_key, at the start of a run, says in
+# words what each colour marks.
+# colour_on [err]: colour is used when the stream the line goes to is a
+# terminal (stdout_is_terminal, whose hook BOOTSTRAP_STDOUT_TERMINAL
+# counts too; [ -t 2 ] for a line on stderr), or BOOTSTRAP_COLOR is set
+# (a test hook that forces colour); never when NO_COLOR is set and not
+# empty (https://no-color.org), which wins over all of these, or when
+# TERM is dumb.
 colour_on() {
   [ -z "${NO_COLOR:-}" ] || return 1
   [ "${TERM:-}" != dumb ] || return 1
@@ -184,16 +215,32 @@ colour_on() {
   if [ "${1:-}" = err ]; then [ -t 2 ]; else stdout_is_terminal; fi
 }
 
-# painted <text> [err]: the text, in colour when colour_on (err: for a
-# line on stderr), with the colour reset straight after it; no line
-# break, so what the user types after a question is not coloured.
-painted() {
-  if colour_on "${2:-}"; then
-    printf '\033[1;36m%s\033[0m' "$1"
+# paint <colour code> <text> [err]: the text, in that colour when
+# colour_on (err: for a line on stderr), with the colour reset straight
+# after it; no line break, so what the user types after a question is
+# not coloured. painted <text> [err]: the text in the first colour.
+paint() {
+  if colour_on "${3:-}"; then
+    printf '\033[%sm%s\033[0m' "$1" "$2"
   else
-    printf '%s' "$1"
+    printf '%s' "$2"
   fi
   OUT_BLANK=""
+}
+painted() { paint '1;36' "$1" "${2:-}"; }
+
+# show_colour_key: one line per colour, each in its own colour and saying
+# in words what it marks, then a blank line; nothing when colour is off.
+# Shown once, at the start of a run, before the first check.
+show_colour_key() {
+  colour_on || return 0
+  painted "Colour key: questions, and what to do next"
+  printf '\n'
+  paint '1;32' "Colour key: commands to copy or to run"
+  printf '\n'
+  paint 2 "Colour key: the progress log of what the script does"
+  printf '\n\n'
+  OUT_BLANK=1
 }
 
 # say_heading <text>: the first line of a block the user reads (the
@@ -207,22 +254,61 @@ say_heading() {
 # say <text>: one line of information. A line that tells the user what
 # to do next (the closing one of the report) is a block of its own, in
 # colour; the line above a command to start again or to continue opens a
-# block of its own, plain.
+# block of its own, and the line above an offered command does not; both
+# are in colour, as instructions.
 say() {
   case "$*" in
     "What to do next: "*) say_heading "$*" ;;
-    "$START_AGAIN_INTRO" | "$CONTINUE_INTRO" | "$ADVANCE_INTRO") block_start; printf '%s\n' "$*"; OUT_BLANK="" ;;
+    "$START_AGAIN_INTRO" | "$CONTINUE_INTRO" | "$ADVANCE_INTRO") block_start; painted "$*"; printf '\n' ;;
+    "$OFFER_INTRO") end_line; painted "$*"; printf '\n' ;;
     "") end_line; printf '\n'; OUT_BLANK=1 ;;
-    *) end_line; printf '%s\n' "$*"; OUT_BLANK="" ;;
+    "Warning: "*) end_line; printf '%s\n' "$*"; OUT_BLANK="" ;;
+    *)
+      end_line
+      if [ -n "$IN_LOG" ]; then paint 2 "$*"; printf '\n'; else printf '%s\n' "$*"; fi
+      OUT_BLANK=""
+      ;;
   esac
 }
 
-# say_command <command>: a command for the user to copy, indented.
-say_command() { end_line; printf '    %s\n' "$*"; OUT_BLANK=""; }
+# say_note <text>: one line inside a step that the user may act on (a
+# link to open, an option, a permission to set): plain, never dim like
+# the progress log around it (#237 review, N2). The lines after it are
+# log again.
+say_note() { end_line; printf '%s\n' "$*"; OUT_BLANK=""; }
 
-# step_start <what>, step_end <result>: the first and last line of a step.
-step_start() { end_line; CURRENT_STEP="$*"; printf '==> %s\n' "$*"; OUT_BLANK=""; }
-step_end() { end_line; printf '    Done. %s\n' "$*"; OUT_BLANK=""; }
+# say_command <command> [err]: a command for the user to copy, indented,
+# with only the command in the command colour, not the indent (err: on
+# stderr, in colour only when stderr is a terminal).
+say_command() {
+  end_line
+  if [ "${2:-}" = err ]; then
+    { printf '    '; paint '1;32' "$1" err; printf '\n'; } >&2
+  else
+    printf '    '
+    paint '1;32' "$1"
+    printf '\n'
+  fi
+  OUT_BLANK=""
+}
+
+# step_start <what>, step_end <result>: the first and last line of a step,
+# dim, as the say lines between them (the indent of the last line stays
+# outside the colour).
+step_start() {
+  end_line
+  CURRENT_STEP="$*"
+  paint 2 "==> $*"
+  printf '\n'
+  IN_LOG=1
+}
+step_end() {
+  end_line
+  printf '    '
+  paint 2 "Done. $*"
+  printf '\n'
+  IN_LOG=""
+}
 
 # show_error <what happened> <what to do next> [raw text]: an error in
 # plain words with the next action, on stderr. Raw text (an error from a
@@ -274,6 +360,8 @@ START_AGAIN_INTRO="To start again, run this command:"
 CONTINUE_INTRO="To continue the setup, run this command:"
 # Shown once, after the yes and before the first change (show_advance_command).
 ADVANCE_INTRO="If the setup stops before it finishes, for any reason, also with Ctrl-C or a closed window, continue it with the command below. Copy it now and keep it until the setup has finished:"
+# The line above a command the script offers to run (offer_command).
+OFFER_INTRO="The script can run this command for you:"
 # The plan and step 10 give it for a public project with no licence.
 NO_LICENCE_WARNING="Warning: the project is public and has no licence: anyone can see its code, but nobody else may copy, change or share it. To add a licence later, see https://choosealicense.com."
 
@@ -357,7 +445,12 @@ ask_terminal() {
 # A guide: guide_begin <title> <why>, then guide_step <text> for each
 # numbered step (with say_command for a command to copy), then guide_end
 # <what the user sees when it worked> <what to do otherwise> <how the
-# script checks it>.
+# script checks it>. A step that ends with a colon introduces the command
+# printed right below it, so it is in colour as an instruction (the tests
+# hold every such step to a command below it, and every command in a
+# guide to such a step above it). A step that points to "the command
+# shown below" (the command of the stop) stays plain: that command comes
+# with an instruction line of its own.
 GUIDE_TITLE=""
 GUIDE_N=0
 guide_begin() {
@@ -369,7 +462,10 @@ guide_begin() {
 }
 guide_step() {
   GUIDE_N=$((GUIDE_N + 1))
-  printf '  %s. %s\n' "$GUIDE_N" "$*"
+  case "$*" in
+    *:) printf '  '; painted "$GUIDE_N. $*"; printf '\n' ;;
+    *) printf '  %s. %s\n' "$GUIDE_N" "$*" ;;
+  esac
   OUT_BLANK=""
 }
 guide_end() {
@@ -657,7 +753,7 @@ IN_NAME="" IN_OWNER="" IN_PROJECT_NAME="" IN_DESCRIPTION="" IN_PO_NAME=""
 IN_PACK="" IN_WITH_DEPLOY="" IN_VISIBILITY="" IN_LICENSE="" IN_COPYRIGHT_HOLDER=""
 IN_DIR="" IN_CI_TIMEOUT="" IN_SLUG="" IN_GIT_NAME="" IN_GIT_EMAIL=""
 OPT_NON_INTERACTIVE="" OPT_YES="" OPT_DRY_RUN="" OPT_RESUME="" OPT_ALLOW_UNPROTECTED=""
-SEEN_PUBLIC="" SEEN_PRIVATE=""
+SEEN_PUBLIC="" SEEN_PRIVATE="" SEEN_WITH_DEPLOY="" SEEN_WITHOUT_DEPLOY=""
 PROBLEMS=""
 CR="$(printf '\r')"
 NL='
@@ -717,11 +813,12 @@ parse_args() {
           --git-email) IN_GIT_EMAIL="$val" ;;
         esac
         ;;
-      --with-deploy | --public | --private | --non-interactive | --yes | --dry-run | --resume | --allow-unprotected | --help)
+      --with-deploy | --without-deploy | --public | --private | --non-interactive | --yes | --dry-run | --resume | --allow-unprotected | --help)
         [ -z "$has_val" ] || fail 2 "The option $arg does not take a value." \
           "Remove the = and what follows it, and run the script again. $OPTIONS_NEXT"
         case "$arg" in
-          --with-deploy) IN_WITH_DEPLOY=yes ;;
+          --with-deploy) SEEN_WITH_DEPLOY=1; IN_WITH_DEPLOY=yes ;;
+          --without-deploy) SEEN_WITHOUT_DEPLOY=1; IN_WITH_DEPLOY=no ;;
           --public) SEEN_PUBLIC=1; IN_VISIBILITY=public ;;
           --private) SEEN_PRIVATE=1; IN_VISIBILITY=private ;;
           --non-interactive) OPT_NON_INTERACTIVE=1 ;;
@@ -731,6 +828,13 @@ parse_args() {
           --allow-unprotected) OPT_ALLOW_UNPROTECTED=1 ;;
           --help) show_help; exit 0 ;;
         esac
+        ;;
+      --version)
+        # Read where it stands, as --help is: the options after it are not read.
+        [ -z "$has_val" ] || fail 2 "The option $arg does not take a value." \
+          "Remove the = and what follows it, and run the script again. $OPTIONS_NEXT"
+        show_version
+        exit 0
         ;;
       -*)
         fail 2 "The option $arg is not one this script knows." \
@@ -972,11 +1076,11 @@ prompt_for() {
     ask "$@" || fail 2 "The script stopped because a question got no answer." \
       "Run the script again and type an answer to each question, or give every answer as an option with --non-interactive. $OPTIONS_NEXT"
     if [ -z "$ANSWER" ]; then
-      say "$ASK_NEEDED $ASK_RETRY"
+      say_note "$ASK_NEEDED $ASK_RETRY"
     elif "$check" "$ANSWER"; then
       return 0
     else
-      say "$PROBLEM $ASK_RETRY"
+      say_note "$PROBLEM $ASK_RETRY"
     fi
   done
 }
@@ -1032,6 +1136,9 @@ check_options() {
   check_given --git-email check_email "$IN_GIT_EMAIL" && IN_GIT_EMAIL="$CHECKED"
   if [ -n "$SEEN_PUBLIC" ] && [ -n "$SEEN_PRIVATE" ]; then
     add_problem --private "Give either --public or --private, not both."
+  fi
+  if [ -n "$SEEN_WITH_DEPLOY" ] && [ -n "$SEEN_WITHOUT_DEPLOY" ]; then
+    add_problem --without-deploy "Give either --with-deploy or --without-deploy, not both."
   fi
   check_deploy_pack
   if [ -n "$OPT_ALLOW_UNPROTECTED" ] && [ -z "$OPT_RESUME" ]; then
@@ -1117,13 +1224,12 @@ collect_inputs() {
     check_deploy_pack
     stop_if_problems
   fi
-  if [ "$IN_PACK" = web ] && [ -z "$IN_WITH_DEPLOY" ]; then
-    answer --with-deploy check_yes_no no \
-      "Also add the files that publish the website on Cloudflare (a hosting service); you can add them later." \
-      "Add the publishing files? (yes or no)" || true
-    IN_WITH_DEPLOY="$CHECKED"
+  # With --resume the publishing files may be laid out already: for the web
+  # pack the choice waits until the state is known (resume_deploy_choice).
+  if [ "$IN_PACK" = web ] && [ -z "$IN_WITH_DEPLOY" ] && [ -z "$OPT_RESUME" ]; then
+    ask_deploy
   fi
-  [ -n "$IN_WITH_DEPLOY" ] || IN_WITH_DEPLOY=no
+  if [ -z "$IN_WITH_DEPLOY" ] && { [ "$IN_PACK" != web ] || [ -z "$OPT_RESUME" ]; }; then IN_WITH_DEPLOY=no; fi
   if [ -z "$IN_VISIBILITY" ]; then
     answer --public check_visibility_answer public \
       "Who can see the project on GitHub; the protection this setup turns on is free for public projects, but needs a paid GitHub plan for private ones." \
@@ -1167,6 +1273,16 @@ collect_inputs() {
   fi
   [ -n "$IN_CI_TIMEOUT" ] || IN_CI_TIMEOUT=20
   stop_if_problems
+}
+
+# ask_deploy: the question about the web pack's publishing files (or,
+# with --non-interactive, its default no). A no is carried in the
+# commands shown as --without-deploy (carried_options).
+ask_deploy() {
+  answer --with-deploy check_yes_no no \
+    "Also add the files that publish the website on Cloudflare (a hosting service); you can add them later." \
+    "Add the publishing files? (yes or no)" || true
+  IN_WITH_DEPLOY="$CHECKED"
 }
 
 # ask_license: the licence question (or, with --non-interactive, the
@@ -1222,8 +1338,9 @@ check_deploy_pack() {
 # stop it shows the command to start again and exits 3. With
 # --non-interactive it shows the guide and exits 3 at once. Where the
 # script can run the fix itself (an install), the guide sets OFFER and the
-# script offers the command once, running it only after a yes typed at
-# the terminal (ask_terminal): never from stdin, never because of --yes.
+# script offers the command on each round (not straight after it ran),
+# running it only after a yes typed at the terminal (ask_terminal): never
+# from stdin, never because of --yes.
 #
 # guided_check <check> <guide> is the loop; the GitHub checks reuse it.
 # A check returns 0 when it passes; a guide prints through guide_begin,
@@ -1333,7 +1450,7 @@ carried_options() {
     [ -n "$value" ] || continue
     case "$opt" in
       --with-deploy)
-        if [ "$value" = yes ]; then CARRIED_OPTS="$CARRIED_OPTS --with-deploy"; fi
+        if [ "$value" = yes ]; then CARRIED_OPTS="$CARRIED_OPTS --with-deploy"; else CARRIED_OPTS="$CARRIED_OPTS --without-deploy"; fi
         ;;
       --public) CARRIED_OPTS="$CARRIED_OPTS --$value" ;;
       *)
@@ -1419,7 +1536,7 @@ offered() {
 # Returns 0 when it ran (the check runs again straight away), 1 when the
 # user did not say yes.
 offer_command() {
-  say "The script can run this command for you:"
+  say "$OFFER_INTRO"
   offered "$OFFER" show
   if ask_terminal "It runs only if you type yes; Enter or any other answer skips it, and you can run it yourself." \
     "Run it now? (yes or no)"; then
@@ -1430,7 +1547,27 @@ offer_command() {
     fi
     return 0
   fi
-  say "Not run. Follow the steps above yourself."
+  # This window waits for Enter, so the user's own run is in another one.
+  # A winget install is found only in a Git Bash window opened after it,
+  # so its guide says to start the script again there: this line too.
+  if offer_needs_new_window; then
+    say "Not run. To run it yourself, run it in another Git Bash window. When it has finished, type q here and copy the command the script shows to start again. Then close both windows, open Git Bash again from the Start menu, and run that command there."
+    return 1
+  fi
+  case "$OS_KIND" in
+    windows) say "Not run. To run it yourself, open another Git Bash window (this one is waiting), run the command there, then come back here and press Enter to check again." ;;
+    *) say "Not run. To run it yourself, open another terminal window (this one is waiting), run the command there, then come back here and press Enter to check again." ;;
+  esac
+  return 1
+}
+
+# offer_needs_new_window: the offer (OFFER) is a winget install, which
+# this window cannot see (its PATH was read when it opened); its guide
+# says to start the script again in a new Git Bash window.
+offer_needs_new_window() {
+  case "$OFFER" in
+    winget-*) return 0 ;;
+  esac
   return 1
 }
 
@@ -1438,17 +1575,33 @@ offer_command() {
 # whose check cannot pass again in this run (a new script or a new
 # terminal window is needed) sets NO_RECHECK: it stops at once, as with
 # --non-interactive.
+# The offer comes on every round whose guide has one (end-to-end run 1:
+# after a no by accident, the only ways on were another window or a new
+# start), except the round straight after the command ran: that round
+# waits for Enter, as the command may still be working (Apple's
+# installer goes on in its own window) or need a new window. So every
+# round reads a line, from the terminal or from stdin, and between two
+# runs there is always an Enter: the loop never goes round on its own.
+# Once a winget install has run, no winget install is offered again in
+# this window, which cannot see it: each round says to start again in a
+# new Git Bash window instead.
 guided_check() {
-  local check="$1" guide="$2" offered_once=""
+  local check="$1" guide="$2" just_ran="" ran_winget=""
   while ! "$check"; do
     OFFER=""
     NO_RECHECK=""
     "$guide"
     [ -z "$OPT_NON_INTERACTIVE" ] && [ -z "$NO_RECHECK" ] || stop_at_guide
-    if [ -n "$OFFER" ] && [ -z "$offered_once" ]; then
-      offered_once=1
-      offer_command && continue
+    if [ -n "$ran_winget" ] && offer_needs_new_window; then
+      say "The script cannot check again in this window, because a program installed with winget is found only in a Git Bash window opened after the install. Type q here and copy the command the script shows to start again. Then close this window, open Git Bash again from the Start menu, and run that command there."
+    elif [ -n "$OFFER" ] && [ -z "$just_ran" ]; then
+      if offer_command; then
+        just_ran=1
+        if offer_needs_new_window; then ran_winget=1; fi
+        continue
+      fi
     fi
+    just_ran=""
     wait_for_enter || stop_at_guide
   done
 }
@@ -1906,8 +2059,19 @@ preflight_target_dir() {
 # support (exit 1).
 
 BOOTSTRAPPER=factoincognito/ai-project-bootstrap
-SIGN_IN_COMMAND_NEXT="Sign in to GitHub with gh as in step 0 of the README, with the command gh auth login -h github.com -p https -w -s workflow, then start the script again."
-SIGN_IN_CONTINUE_NEXT="Sign in to GitHub with gh as in step 0 of the README, with the command gh auth login -h github.com -p https -w -s workflow, then continue the setup with the command shown above."
+
+# GH_GIT_QUESTION_TEXT: gh's question, written once. gh auth login and
+# gh auth refresh both ask it (default Yes) before the one-time code,
+# unless gh already signs git in to GitHub (gh v2.93.0,
+# pkg/cmd/auth/shared/git_credential.go); Yes makes gh git's sign-in for
+# GitHub. GH_GIT_QUESTION_STEP is the step every guide that has the user
+# run one of them gives right after the command, so the guides cannot
+# drift apart; a stop message that names one gives the answer in a
+# clause built from GH_GIT_QUESTION_TEXT.
+GH_GIT_QUESTION_TEXT='Authenticate Git with your GitHub credentials?'
+GH_GIT_QUESTION_STEP="If gh asks \"$GH_GIT_QUESTION_TEXT\", answer Yes: type y and press Enter, or just press Enter."
+SIGN_IN_COMMAND_NEXT="Sign in to GitHub with gh as in step 0 of the README, with the command gh auth login -h github.com -p https -w -s workflow (if gh asks \"$GH_GIT_QUESTION_TEXT\", answer Yes), then start the script again."
+SIGN_IN_CONTINUE_NEXT="Sign in to GitHub with gh as in step 0 of the README, with the command gh auth login -h github.com -p https -w -s workflow (if gh asks \"$GH_GIT_QUESTION_TEXT\", answer Yes), then continue the setup with the command shown above."
 
 API_RC=0 API_STATUS="" API_HEADERS="" API_BODY="" API_BODY_CR="" API_MESSAGE="" API_ERR="" API_RAW=""
 
@@ -2106,7 +2270,7 @@ guide_github_account() {
   esac
   guide_step "Open a second terminal window and run this command there; it is the sign-in command from step 0 of the README:"
   say_command "gh auth login -h github.com -p https -w -s workflow"
-  guide_step "When gh asks \"Authenticate Git with your GitHub credentials?\", answer Yes."
+  guide_step "$GH_GIT_QUESTION_STEP"
   guide_step "gh shows a one-time code (eight letters and digits, such as ABCD-1234) and asks you to press Enter: copy the code, then press Enter. Your browser opens GitHub's device page: paste the code, click Continue, then approve with the green Authorize button."
   guide_step "Come back to this window."
   guide_end "gh says \"Logged in as\" with your account name, and the script says \"Done. gh is signed in to GitHub as\" with your account name." \
@@ -2290,6 +2454,7 @@ guide_github_permissions() {
     public_repo*) offered gh-refresh-public show; OFFER=gh-refresh-public ;;
     *) offered gh-refresh-repo show; OFFER=gh-refresh-repo ;;
   esac
+  guide_step "$GH_GIT_QUESTION_STEP"
   guide_step "gh shows a one-time code (eight letters and digits, such as ABCD-1234) and asks you to press Enter: copy the code, then press Enter."
   guide_step "Your browser opens https://github.com/login/device: paste the code, click Continue, then approve with the green Authorize button."
   guide_step "Come back to this window."
@@ -2305,9 +2470,9 @@ preflight_github_permissions() {
     step_end "gh has the permissions on GitHub that the setup needs."
     return 0
   fi
-  say "GitHub does not say which permissions this sign-in has, as with a fine-grained token (a key made on GitHub with chosen permissions)."
-  say "The setup needs these permissions, each set to \"Read and write\": Administration, Contents, Workflows and Pull requests; and your account must be allowed to create repositories (new projects on GitHub)."
-  say "If one of them is missing, a later step stops and says so."
+  say_note "GitHub does not say which permissions this sign-in has, as with a fine-grained token (a key made on GitHub with chosen permissions)."
+  say_note "The setup needs these permissions, each set to \"Read and write\": Administration, Contents, Workflows and Pull requests; and your account must be allowed to create repositories (new projects on GitHub)."
+  say_note "If one of them is missing, a later step stops and says so."
   step_end "Carrying on without checking the permissions."
 }
 
@@ -2428,7 +2593,7 @@ preflight_license() {
       add_problem --license "$problem"
       stop_if_problems
     fi
-    say "$problem $ASK_RETRY"
+    say_note "$problem $ASK_RETRY"
     ask_license
     case "$IN_LICENSE" in
       none | "$POLYFORM_KEY")
@@ -2825,9 +2990,9 @@ protect_main() {
       if [ -n "$OPT_ALLOW_UNPROTECTED" ] && [ "$PROTECT_PROBLEM" = plan ]; then
         UNPROTECTED=1
         api_raw
-        say "GitHub does not protect the main version of this project on its plan; its answer is below."
+        say_note "GitHub does not protect the main version of this project on its plan; its answer is below."
         guide_details "$API_RAW"
-        say "You chose to go on without protection with --allow-unprotected, so the script goes on, and writes that decision into the project's memory/decisions.md."
+        say_note "You chose to go on without protection with --allow-unprotected, so the script goes on, and writes that decision into the project's memory/decisions.md."
         step_end "Carrying on without protection: changes could go straight into the main version."
         return 0
       fi
@@ -2866,11 +3031,11 @@ offer_public() {
   rm -f "$out" "$err"
   if [ "$rc" -eq 0 ]; then
     IN_VISIBILITY=public
-    say "The project $IN_OWNER/$IN_NAME is public now. Continue the setup with the command shown below."
+    say_note "The project $IN_OWNER/$IN_NAME is public now. Continue the setup with the command shown below."
     return 0
   fi
   [ -n "$raw" ] || raw="gh stopped with exit code $rc and no message."
-  say "GitHub did not make the project public; its answer is below. Check on https://github.com/$IN_OWNER/$IN_NAME/settings that your account is one of the project's admins (who may change its settings), or run the command shown above that starts with gh yourself."
+  say_note "GitHub did not make the project public; its answer is below. Check on https://github.com/$IN_OWNER/$IN_NAME/settings that your account is one of the project's admins (who may change its settings), or run the command shown above that starts with gh yourself."
   guide_details "$raw"
 }
 
@@ -3021,7 +3186,7 @@ check_actions() {
   step_start "Checking that GitHub Actions, which runs the project's checks, is turned on for it"
   guided_check check_actions_on guide_actions_off
   if [ -n "$ACTIONS_UNCHECKED" ]; then
-    say "The script could not check whether GitHub Actions is turned on for the project: GitHub did not say (its answer is below). This check only warns early, so the setup goes on."
+    say_note "The script could not check whether GitHub Actions is turned on for the project: GitHub did not say (its answer is below). This check only warns early, so the setup goes on."
     guide_details "$ACTIONS_UNCHECKED"
     step_end "Carrying on without this check. If GitHub Actions is off, the project's checks will not run on the proposed change."
     return 0
@@ -3653,7 +3818,7 @@ git_sign_in_failed() {
 guide_git_sign_in() {
   guide_begin "git could not sign in to GitHub to $SIGN_IN_FOR." \
     "git (the tool that keeps the project's history) needs your GitHub sign-in for this. The script lends it the sign-in of gh (the GitHub command-line tool) for this one step, and git still could not sign in."
-  guide_step "Let gh sign git in to GitHub with this command. It changes your global git settings (the settings git uses for every project on this computer): from then on, git signs in to GitHub through gh in every project, not only this one."
+  guide_step "Let gh sign git in to GitHub. This changes your global git settings (the settings git uses for every project on this computer): from then on, git signs in to GitHub through gh in every project, not only this one. This command does it:"
   say_command "gh auth setup-git"
   guide_step "Then come back here and press Enter: the script tries again."
   guide_end "the script says \"Done.\" after it tries again." \
@@ -3958,7 +4123,7 @@ try_push() {
   case "$raw" in
     *"refusing to allow"*workflow*)
       stop_with_error "GitHub refused the setup's changes, because the sign-in that gh lends to git may not change the project's workflow files (the files that run its checks on GitHub)." \
-        "Give gh that permission with the command gh auth refresh -h github.com -s workflow, then continue the setup with the command shown above." \
+        "Give gh that permission with the command gh auth refresh -h github.com -s workflow (if gh asks \"$GH_GIT_QUESTION_TEXT\", answer Yes), then continue the setup with the command shown above." \
         "$raw"
       ;;
     *"Could not resolve host"* | *"Failed to connect"* | *"Connection timed out"* | *"Could not connect"*)
@@ -4194,8 +4359,8 @@ wait_for_build() {
   duration_words $((IN_CI_TIMEOUT * 60))
   limit="$DURATION"
   step_start "Waiting for the project's check build to pass on the proposed change, for at most $limit"
-  say "That is the limit: if build has not passed after $limit, the script stops, leaves the proposed change open and shows how to continue (--ci-timeout sets a different limit)."
-  say "You can follow the check here: $PR_URL/checks"
+  say_note "That is the limit: if build has not passed after $limit, the script stops, leaves the proposed change open and shows how to continue (--ci-timeout sets a different limit)."
+  say_note "You can follow the check here: $PR_URL/checks"
   max=$((IN_CI_TIMEOUT * 60 / CHECKS_DELAY))
   while :; do
     look_at_build
@@ -4859,6 +5024,49 @@ resume_plan() {
   esac
 }
 
+# resume_deploy_choice: with --resume, the web pack's publishing files
+# (end-to-end run 1, r1e). Before the pack is laid out (template, fresh)
+# the choice is still open: the option given, else the question, asked
+# only now that the state is known. Once the setup's change is saved
+# (saved, sent, proposed), the files are in it or not: the choice is read
+# from that change, in the copy (resume_decide has checked that it matches
+# GitHub's), or on GitHub when there is no copy; an option that says
+# otherwise is refused before anything changes. A project set up already
+# (added) takes it from main with the pack and the licence (resume_added).
+DEPLOY_WORKFLOW=.github/workflows/deploy.yml
+resume_deploy_choice() {
+  local laid
+  [ "$IN_PACK" = web ] || return 0
+  case "$RESUME_STATE" in
+    template | fresh)
+      [ -n "$IN_WITH_DEPLOY" ] || ask_deploy
+      ;;
+    saved | sent | proposed)
+      if [ -n "$COPY_PRESENT" ]; then
+        # Not <rev>:<path>: Git Bash rewrites a <rev>:.github/... as a path
+        # list before git sees it (#239).
+        if [ -n "$(git -C "$IN_DIR" ls-tree --name-only "refs/heads/$SETUP_BRANCH" -- "$DEPLOY_WORKFLOW" 2>/dev/null)" ]; then laid=yes; else laid=no; fi
+      else
+        api_call -H "Accept: application/vnd.github.raw+json" "repos/$IN_OWNER/$IN_NAME/contents/$DEPLOY_WORKFLOW?ref=$SETUP_BRANCH"
+        case "$API_STATUS" in
+          200) laid=yes ;;
+          404) laid=no ;;
+          *) api_fail "look for the files that publish the website in the setup's changes on GitHub" ;;
+        esac
+      fi
+      if [ -n "$IN_WITH_DEPLOY" ] && [ "$IN_WITH_DEPLOY" != "$laid" ]; then
+        if [ "$laid" = yes ]; then
+          add_problem --without-deploy "The setup's changes already have the files that publish the website, so this setup cannot leave them out now. Remove this option, or put --with-deploy in its place."
+        else
+          add_problem --with-deploy "The setup's changes do not have the files that publish the website, so this setup cannot add them now; you can add them to the project later. Remove this option, or put --without-deploy in its place."
+        fi
+        stop_if_problems
+      fi
+      IN_WITH_DEPLOY="$laid"
+      ;;
+  esac
+}
+
 # use_setup_branch: a copy with none of the setup's changes goes on in its
 # line of work bootstrap-setup if it has one, else starts it.
 use_setup_branch() {
@@ -4989,6 +5197,7 @@ cmd_setup() {
     add_problem --yes "With --non-interactive the script asks nothing, so it cannot ask \"Proceed?\" before it creates the project: add --yes to go ahead, or --dry-run to only see the plan."
   fi
   check_options
+  show_colour_key
   preflight_tools
   preflight_github_account
   preflight_published_version
@@ -5000,6 +5209,7 @@ cmd_setup() {
   preflight_license
   if [ -n "$OPT_RESUME" ]; then
     resume_plan
+    resume_deploy_choice
     plan_steps "$RESUME_STATE"
     if [ -n "$OPT_DRY_RUN" ]; then
       say "This was a dry run (--dry-run): the checks passed, and nothing was changed."
