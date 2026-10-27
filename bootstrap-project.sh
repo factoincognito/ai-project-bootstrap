@@ -48,6 +48,10 @@
 #                  as one argument, so the tests never install anything.
 #   BOOTSTRAP_TTY  the terminal the yes to an offered command is read from
 #                  (default: /dev/tty), never stdin.
+#   BOOTSTRAP_INPUT_TERMINAL  yes or no: whether the input of a question
+#                  (stdin, or BOOTSTRAP_TTY for the offer) is a terminal,
+#                  where keys typed before the question are discarded
+#                  (default: asked of the shell, [ -t 0 ]).
 #   BOOTSTRAP_OS_RELEASE  the Linux release file (default: /etc/os-release).
 #   BOOTSTRAP_SLEEP  the command that waits between two checks of GitHub
 #                  (default: sleep). It gets the seconds as its argument.
@@ -71,8 +75,8 @@ set -euo pipefail
 # and these hold the placeholders. These two lines are the only place a
 # placeholder may appear: the build refuses any left in its output, so
 # code compares against these variables, never a literal placeholder.
-SCRIPT_VERSION='v2.7.0'
-SCRIPT_COMMIT='cb595de00fb4fcedac1a7bb9b1c99aef88d91735'
+SCRIPT_VERSION='v2.8.0'
+SCRIPT_COMMIT='72da0d491c3bd423d494150b145bbe11a6e6b513'
 
 # State of the stop handling (see catch_stops): CLEAN is set by every
 # deliberate stop, CURRENT_STEP is the step being done.
@@ -155,18 +159,38 @@ show_version() {
 }
 
 # say_open <text>: text with no line break after it, so more can follow
-# on the same line (the signs of life of the wait for build). The next
-# message of any helper below ends that line first (end_line).
+# on the same line (the stars of the wait for build), plain (r1h). The
+# next message of any helper below ends that line first (end_line).
 LINE_OPEN=""
-say_open() { paint 2 "$*"; LINE_OPEN=1; }
+say_open() { printf '%s' "$*"; OUT_BLANK=""; LINE_OPEN=1; }
 end_line() {
   [ -z "$LINE_OPEN" ] || printf '\n'
   LINE_OPEN=""
+  LOG_GAP=""
+}
+
+# LOG_GAP: the last thing printed is the user's part: a question with its
+# answer (ask, ask_terminal, wait_for_enter), or the command to continue
+# shown before the first change (show_advance_command; #248 review, N3).
+# A line of the progress log (step_start, step_end, say_log) that comes
+# straight after it gets one blank line above it first (log_resumes), as
+# #202 sets the user's part apart from the log (r1i). Any other line
+# printed in between clears it (end_line). Before output that no helper
+# sees (an offered command's own), log_resumes is called at once, so the
+# blank line follows the answer and is never doubled (#248 review, B1).
+LOG_GAP=""
+log_resumes() {
+  if [ -n "$LOG_GAP" ] && [ -z "$OUT_BLANK" ]; then
+    printf '\n'
+    OUT_BLANK=1
+  fi
+  LOG_GAP=""
 }
 
 # Two kinds of output (finding 8 of the first end-to-end run): the
 # progress log (step_start, step_end, and say while the script works),
-# plain; and what the script says to the user: a question (ask,
+# dim when colour is on (see LOG_COLOUR below); and what the script says
+# to the user: a question (ask,
 # prompt_for, ask_terminal, wait_for_enter), the plan (say_heading), a
 # guide (guide_begin to guide_end), a stop (show_error, and the command
 # shown above it), the command to continue shown before the first change
@@ -188,20 +212,45 @@ block_start() {
   IN_LOG=""
 }
 
-# The lines the user acts on or reads first (a question with its default,
-# the plan's heading, "Proceed?", "What to do next", and the instruction
-# line above a command: the texts *_INTRO and a guide step that ends with
-# a colon) are in one colour, bold cyan. A command for the user to copy,
-# or that the script offers to run, is in a second colour, bold green
-# (end-to-end run 1 repeated, finding r1d): green rather than yellow,
-# which is hard to read on a light background, while green reads on both
-# light and dark ones. The progress log is dim (SGR 2), which follows the
-# terminal's own text colour on any background: a step's first and last
-# line, the wait's open line, and a say line inside a step (IN_LOG, from
-# step_start until step_end or a block the user reads starts), except a
-# warning and a line the user may act on (say_note). A terminal that has no dim shows it as plain text. Nothing
-# else is in colour. show_colour_key, at the start of a run, says in
-# words what each colour marks.
+# Four kinds of line are in colour (end-to-end run 1 on v2.7.0, finding
+# r1g: a line where the user types apart from the text that explains it),
+# each colour set once, below:
+# - ANSWER_COLOUR, bold cyan: a line where the user types an answer, the
+#   question with its default (ask, prompt_for, "Proceed?"), ask_terminal's
+#   question and wait_for_enter's line; the colour ends before the space
+#   where the answer goes.
+# - READ_COLOUR, bold magenta: the text the user reads to act on: the
+#   explanation above a question, the plan's heading, a guide's title,
+#   "Why this is needed", every step, "When it has worked" and "If you see
+#   something else", "What to do next" (of a stop and of the report), the
+#   instruction line above a command (the texts *_INTRO), and a note the
+#   user may act on (say_note). Not the choices under an explanation, "How
+#   the script checks it", "What happened", the details for support, a
+#   warning, the lines of the plan and of the report.
+# - COMMAND_COLOUR, bold green: a command for the user to copy, or that
+#   the script offers to run (end-to-end run 1 repeated, finding r1d).
+# - LOG_COLOUR, dim (SGR 2), which follows the terminal's own text colour
+#   on any background: the progress log, a step's first and last line,
+#   and a say line inside a step (IN_LOG, from
+#   step_start until step_end or a block the user reads starts), except a
+#   warning and a note (say_note). A terminal that has no dim shows it as
+#   plain text. Not the signs of life of the wait for build: its lines
+#   and its stars are plain (r1h).
+# Nothing else is in colour. show_colour_key, at the start of a run, says
+# in words what each colour marks. Setting READ_COLOUR to ANSWER_COLOUR
+# gives Adam's fallback (r1g): the two kinds in one colour, and the key
+# shows them as one line.
+# Magenta for READ_COLOUR is Adam's choice (2026-10-27, #248 review, N1),
+# not yellow: yellow is hard to read on a light background (bold yellow is
+# about 1.1:1 to 1.35:1 against white in xterm and macOS Terminal), the
+# reason r1d chose green over yellow for commands, and the read colour
+# carries the most important text. Bold magenta reads on light and dark
+# backgrounds alike. Changing it is this one value: '1;36' gives the
+# fallback above.
+ANSWER_COLOUR='1;36'
+READ_COLOUR='1;35'
+COMMAND_COLOUR='1;32'
+LOG_COLOUR='2'
 # colour_on [err]: colour is used when the stream the line goes to is a
 # terminal (stdout_is_terminal, whose hook BOOTSTRAP_STDOUT_TERMINAL
 # counts too; [ -t 2 ] for a line on stderr), or BOOTSTRAP_COLOR is set
@@ -218,7 +267,8 @@ colour_on() {
 # paint <colour code> <text> [err]: the text, in that colour when
 # colour_on (err: for a line on stderr), with the colour reset straight
 # after it; no line break, so what the user types after a question is
-# not coloured. painted <text> [err]: the text in the first colour.
+# not coloured. answer_line <text>: the text in the answer colour;
+# read_line <text> [err]: the text in the read colour, then a line break.
 paint() {
   if colour_on "${3:-}"; then
     printf '\033[%sm%s\033[0m' "$1" "$2"
@@ -227,55 +277,72 @@ paint() {
   fi
   OUT_BLANK=""
 }
-painted() { paint '1;36' "$1" "${2:-}"; }
+answer_line() { paint "$ANSWER_COLOUR" "$1"; }
+read_line() { paint "$READ_COLOUR" "$1" "${2:-}"; printf '\n'; }
 
 # show_colour_key: one line per colour, each in its own colour and saying
 # in words what it marks, then a blank line; nothing when colour is off.
-# Shown once, at the start of a run, before the first check.
+# Shown once, at the start of a run, before the first check. When the
+# answer colour and the read colour are the same, one line says both.
 show_colour_key() {
   colour_on || return 0
-  painted "Colour key: questions, and what to do next"
+  if [ "$ANSWER_COLOUR" = "$READ_COLOUR" ]; then
+    paint "$ANSWER_COLOUR" "Colour key: where you type an answer, and what to read and do"
+    printf '\n'
+  else
+    paint "$ANSWER_COLOUR" "Colour key: where you type an answer"
+    printf '\n'
+    paint "$READ_COLOUR" "Colour key: what to read and do"
+    printf '\n'
+  fi
+  paint "$COMMAND_COLOUR" "Colour key: commands to copy or to run"
   printf '\n'
-  paint '1;32' "Colour key: commands to copy or to run"
-  printf '\n'
-  paint 2 "Colour key: the progress log of what the script does"
+  paint "$LOG_COLOUR" "Colour key: the progress log of what the script does"
   printf '\n\n'
   OUT_BLANK=1
 }
 
 # say_heading <text>: the first line of a block the user reads (the
-# plan), after a blank line, in colour.
+# plan), after a blank line, in the read colour.
 say_heading() {
   block_start
-  painted "$*"
-  printf '\n'
+  read_line "$*"
 }
 
 # say <text>: one line of information. A line that tells the user what
 # to do next (the closing one of the report) is a block of its own, in
-# colour; the line above a command to start again or to continue opens a
-# block of its own, and the line above an offered command does not; both
-# are in colour, as instructions.
+# the read colour; the line above a command to start again or to continue
+# opens a block of its own, and the line above an offered command does
+# not; both are in the read colour, as instructions.
 say() {
   case "$*" in
     "What to do next: "*) say_heading "$*" ;;
-    "$START_AGAIN_INTRO" | "$CONTINUE_INTRO" | "$ADVANCE_INTRO") block_start; painted "$*"; printf '\n' ;;
-    "$OFFER_INTRO") end_line; painted "$*"; printf '\n' ;;
+    "$START_AGAIN_INTRO" | "$CONTINUE_INTRO" | "$ADVANCE_INTRO") block_start; read_line "$*" ;;
+    "$OFFER_INTRO") end_line; read_line "$*" ;;
     "") end_line; printf '\n'; OUT_BLANK=1 ;;
     "Warning: "*) end_line; printf '%s\n' "$*"; OUT_BLANK="" ;;
     *)
       end_line
-      if [ -n "$IN_LOG" ]; then paint 2 "$*"; printf '\n'; else printf '%s\n' "$*"; fi
+      if [ -n "$IN_LOG" ]; then paint "$LOG_COLOUR" "$*"; printf '\n'; else printf '%s\n' "$*"; fi
       OUT_BLANK=""
       ;;
   esac
 }
 
-# say_note <text>: one line inside a step that the user may act on (a
-# link to open, an option, a permission to set): plain, never dim like
-# the progress log around it (#237 review, N2). The lines after it are
-# log again.
-say_note() { end_line; printf '%s\n' "$*"; OUT_BLANK=""; }
+# say_note <text>: one line that tells the user what to read and do (a
+# link to open, an option, a permission to set, what to do after a no):
+# in the read colour, never dim like the progress log around it (#237
+# review, N2; r1g). The lines after it are log again.
+say_note() { end_line; read_line "$*"; }
+
+# say_log <text>: one line of the progress log, dim, also where a block
+# the user reads has ended the step's log (what the script did after an
+# answer at the terminal, r1g).
+say_log() { log_resumes; end_line; paint "$LOG_COLOUR" "$*"; printf '\n'; }
+
+# say_sign <text>: a line of the signs of life of the wait for build,
+# plain, never dim (r1h: dim, they were hard to see).
+say_sign() { end_line; printf '%s\n' "$*"; OUT_BLANK=""; }
 
 # say_command <command> [err]: a command for the user to copy, indented,
 # with only the command in the command colour, not the indent (err: on
@@ -283,10 +350,10 @@ say_note() { end_line; printf '%s\n' "$*"; OUT_BLANK=""; }
 say_command() {
   end_line
   if [ "${2:-}" = err ]; then
-    { printf '    '; paint '1;32' "$1" err; printf '\n'; } >&2
+    { printf '    '; paint "$COMMAND_COLOUR" "$1" err; printf '\n'; } >&2
   else
     printf '    '
-    paint '1;32' "$1"
+    paint "$COMMAND_COLOUR" "$1"
     printf '\n'
   fi
   OUT_BLANK=""
@@ -296,16 +363,18 @@ say_command() {
 # dim, as the say lines between them (the indent of the last line stays
 # outside the colour).
 step_start() {
+  log_resumes
   end_line
   CURRENT_STEP="$*"
-  paint 2 "==> $*"
+  paint "$LOG_COLOUR" "==> $*"
   printf '\n'
   IN_LOG=1
 }
 step_end() {
+  log_resumes
   end_line
   printf '    '
-  paint 2 "Done. $*"
+  paint "$LOG_COLOUR" "Done. $*"
   printf '\n'
   IN_LOG=""
 }
@@ -320,8 +389,7 @@ show_error() {
   block_start
   {
     printf 'What happened: %s\n' "$what"
-    painted "What to do next: $next" err
-    printf '\n'
+    read_line "What to do next: $next" err
     [ -z "$raw" ] || details_block "$raw"
   } >&2
 }
@@ -366,8 +434,9 @@ OFFER_INTRO="The script can run this command for you:"
 NO_LICENCE_WARNING="Warning: the project is public and has no licence: anyone can see its code, but nobody else may copy, change or share it. To add a licence later, see https://choosealicense.com."
 
 # ask <explanation> <question> <default> [choice...]: shows the
-# explanation (why the question is asked, in a sentence), the choices,
-# then the question with its default, and reads one answer from stdin
+# explanation (why the question is asked, in a sentence; in the read
+# colour), the choices (plain), then the question with its default (in
+# the answer colour), and reads one answer from stdin
 # into ANSWER: the spaces around it (a carriage return from Windows
 # among them) are removed, and an empty answer takes the default. Returns 1 when stdin has no more
 # answers. When stdin is not a terminal (answers given in a file or
@@ -376,12 +445,12 @@ ask() {
   local why="$1" question="$2" default="$3" got=""
   shift 3
   block_start
-  printf '%s\n' "$why"
+  read_line "$why"
   [ "$#" -eq 0 ] || printf '  %s\n' "$@"
   if [ -n "$default" ]; then
-    painted "$question [$default]:"
+    answer_line "$question [$default]:"
   else
-    painted "$question:"
+    answer_line "$question:"
   fi
   printf ' '
   if ! IFS= read -r got && [ -z "$got" ]; then
@@ -389,22 +458,82 @@ ask() {
     return 1
   fi
   [ -t 0 ] || printf '\n'
+  LOG_GAP=1
   trim_into "$got"
   ANSWER="${TRIMMED:-$default}"
 }
 
+# input_is_terminal: stdin is a terminal (BOOTSTRAP_INPUT_TERMINAL, yes
+# or no, answers for the tests).
+input_is_terminal() {
+  case "${BOOTSTRAP_INPUT_TERMINAL:-}" in
+    yes) return 0 ;;
+    no) return 1 ;;
+  esac
+  [ -t 0 ]
+}
+
+# discard_typeahead: drops the keys waiting at the terminal on stdin,
+# typed before the question that follows was shown (end-to-end run 1 on
+# v2.7.0, finding r1f: an Enter pressed while the script was busy, during
+# the gh checks, answered "Run it now?" with no before the user saw it).
+# Used before the questions a stray Enter must not answer: the offer to
+# run a command, "Proceed?", and the pause of a guide. It runs only at a
+# terminal: answers from a file or a pipe are all answers and are never
+# dropped. It always returns 0 and never waits: with the terminal set to
+# -icanon min 0 time 0, one dd read returns at once, with what is waiting
+# or with nothing (a whole terminal buffer fits in its 64 KiB), and the
+# saved mode is put back. bash's own read cannot do this on bash 3.2: its
+# read -t 0 fails at once without reading, and read -n sets the terminal
+# to wait for a key. When the mode cannot be saved or set, nothing is
+# read (dd would wait for a whole line); when the saved mode cannot be
+# put back, stty sane brings back a terminal that reads whole lines.
+# While the mode is changed, TTY_SAVED holds the saved one and fd 7 the
+# terminal, so that a stop in between (Ctrl-C: the INT trap exits 130)
+# still puts it back: leave_script calls restore_terminal_mode (#247
+# review, B1). A terminal left at min 0 would make every later read
+# return nothing at once, in the user's own shell too.
+TTY_SAVED=""
+discard_typeahead() {
+  local saved
+  input_is_terminal || return 0
+  saved="$(stty -g 2>/dev/null)" || return 0
+  [ -n "$saved" ] || return 0
+  exec 7<&0
+  TTY_SAVED="$saved"
+  if stty -icanon min 0 time 0 2>/dev/null; then
+    dd bs=65536 count=1 >/dev/null 2>&1 || true
+  fi
+  restore_terminal_mode
+  return 0
+}
+
+# restore_terminal_mode: puts back the terminal mode discard_typeahead
+# saved (TTY_SAVED, on the terminal open on fd 7), once; nothing to do
+# when it is back already.
+restore_terminal_mode() {
+  [ -n "$TTY_SAVED" ] || return 0
+  stty "$TTY_SAVED" <&7 2>/dev/null || stty sane <&7 2>/dev/null || true
+  TTY_SAVED=""
+  exec 7<&-
+  return 0
+}
+
 # wait_for_enter: the pause of a guide. Returns 1 when the user types q
-# (or stop) or stdin has no more lines, else 0 (check again).
+# (or stop) or stdin has no more lines, else 0 (check again). Keys typed
+# before the pause was shown are discarded (discard_typeahead).
 wait_for_enter() {
   local got=""
   block_start
-  painted 'Press Enter to check again, or type q to stop:'
+  discard_typeahead
+  answer_line 'Press Enter to check again, or type q to stop:'
   printf ' '
   if ! IFS= read -r got && [ -z "$got" ]; then
     printf '\n'
     return 1
   fi
   [ -t 0 ] || printf '\n'
+  LOG_GAP=1
   trim_into "$got"
   case "$(lower "$TRIMMED")" in
     q | quit | stop) return 1 ;;
@@ -419,22 +548,36 @@ wait_for_enter() {
 # is no terminal to read from. A terminal that cannot be read is a no at
 # once, with the question line ended. One that can be read but not opened
 # (/dev/tty with no terminal attached) is a no too: the redirection
-# fails, the read does not run, got stays empty, and that is not a yes.
+# fails, nothing in the braces runs, the question is shown with its line
+# ended, and that is not a yes. Keys typed before the question was shown
+# are discarded first (discard_typeahead, finding r1f), with the terminal
+# opened once for the discard and the read.
 ask_terminal() {
-  local tty="${BOOTSTRAP_TTY:-/dev/tty}" got=""
+  local tty="${BOOTSTRAP_TTY:-/dev/tty}" got="" opened="" eof=""
   block_start
-  printf '%s\n' "$1"
-  painted "$2 [no]:"
-  printf ' '
-  if [ ! -r "$tty" ]; then
-    printf '\n'
+  read_line "$1"
+  if [ -r "$tty" ]; then
+    {
+      opened=1
+      discard_typeahead
+      answer_line "$2 [no]:"
+      printf ' '
+      IFS= read -r got || eof=1
+    } 2>/dev/null <"$tty" || true
+  fi
+  if [ -z "$opened" ]; then
+    answer_line "$2 [no]:"
+    printf ' \n'
+    LOG_GAP=1
     return 1
   fi
-  if ! { IFS= read -r got; } 2>/dev/null <"$tty" && [ -z "$got" ]; then
+  if [ -n "$eof" ] && [ -z "$got" ]; then
     printf '\n'
+    LOG_GAP=1
     return 1
   fi
   [ -c "$tty" ] || printf '\n'
+  LOG_GAP=1
   trim_into "$got"
   case "$(lower "$TRIMMED")" in
     y | yes) return 0 ;;
@@ -445,31 +588,30 @@ ask_terminal() {
 # A guide: guide_begin <title> <why>, then guide_step <text> for each
 # numbered step (with say_command for a command to copy), then guide_end
 # <what the user sees when it worked> <what to do otherwise> <how the
-# script checks it>. A step that ends with a colon introduces the command
-# printed right below it, so it is in colour as an instruction (the tests
-# hold every such step to a command below it, and every command in a
-# guide to such a step above it). A step that points to "the command
-# shown below" (the command of the stop) stays plain: that command comes
-# with an instruction line of its own.
+# script checks it>. The title, "Why this is needed", every step (its
+# indent outside the colour), "When it has worked" and "If you see
+# something else" are in the read colour (r1g); "How the script checks
+# it" is plain. A step that ends with a colon introduces the command
+# printed right below it (the tests hold every such step to a command
+# below it, and every command in a guide to such a step above it).
 GUIDE_TITLE=""
 GUIDE_N=0
 guide_begin() {
   GUIDE_TITLE="$1"
   GUIDE_N=0
   block_start
-  printf '%s\n' "$1" "Why this is needed: $2"
-  OUT_BLANK=""
+  read_line "$1"
+  read_line "Why this is needed: $2"
 }
 guide_step() {
   GUIDE_N=$((GUIDE_N + 1))
-  case "$*" in
-    *:) printf '  '; painted "$GUIDE_N. $*"; printf '\n' ;;
-    *) printf '  %s. %s\n' "$GUIDE_N" "$*" ;;
-  esac
-  OUT_BLANK=""
+  printf '  '
+  read_line "$GUIDE_N. $*"
 }
 guide_end() {
-  printf '%s\n' "When it has worked: $1" "If you see something else: $2" "How the script checks it: $3"
+  read_line "When it has worked: $1"
+  read_line "If you see something else: $2"
+  printf '%s\n' "How the script checks it: $3"
   OUT_BLANK=""
 }
 # guide_details <raw text>: after guide_end, the raw text of what went
@@ -1540,10 +1682,13 @@ offer_command() {
   offered "$OFFER" show
   if ask_terminal "It runs only if you type yes; Enter or any other answer skips it, and you can run it yourself." \
     "Run it now? (yes or no)"; then
+    # The blank line after the answer now, before the command's own
+    # output, which no helper sees (#248 review, B1).
+    log_resumes
     if offered "$OFFER" run; then
-      say "The command finished. Checking again."
+      say_log "The command finished. Checking again."
     else
-      say "The command stopped with an error (its messages are above). Checking again."
+      say_log "The command stopped with an error (its messages are above). Checking again."
     fi
     return 0
   fi
@@ -1551,12 +1696,12 @@ offer_command() {
   # A winget install is found only in a Git Bash window opened after it,
   # so its guide says to start the script again there: this line too.
   if offer_needs_new_window; then
-    say "Not run. To run it yourself, run it in another Git Bash window. When it has finished, type q here and copy the command the script shows to start again. Then close both windows, open Git Bash again from the Start menu, and run that command there."
+    say_note "Not run. To run it yourself, run it in another Git Bash window. When it has finished, type q here and copy the command the script shows to start again. Then close both windows, open Git Bash again from the Start menu, and run that command there."
     return 1
   fi
   case "$OS_KIND" in
-    windows) say "Not run. To run it yourself, open another Git Bash window (this one is waiting), run the command there, then come back here and press Enter to check again." ;;
-    *) say "Not run. To run it yourself, open another terminal window (this one is waiting), run the command there, then come back here and press Enter to check again." ;;
+    windows) say_note "Not run. To run it yourself, open another Git Bash window (this one is waiting), run the command there, then come back here and press Enter to check again." ;;
+    *) say_note "Not run. To run it yourself, open another terminal window (this one is waiting), run the command there, then come back here and press Enter to check again." ;;
   esac
   return 1
 }
@@ -1593,7 +1738,7 @@ guided_check() {
     "$guide"
     [ -z "$OPT_NON_INTERACTIVE" ] && [ -z "$NO_RECHECK" ] || stop_at_guide
     if [ -n "$ran_winget" ] && offer_needs_new_window; then
-      say "The script cannot check again in this window, because a program installed with winget is found only in a Git Bash window opened after the install. Type q here and copy the command the script shows to start again. Then close this window, open Git Bash again from the Start menu, and run that command there."
+      say_note "The script cannot check again in this window, because a program installed with winget is found only in a Git Bash window opened after the install. Type q here and copy the command the script shows to start again. Then close this window, open Git Bash again from the Start menu, and run that command there."
     elif [ -n "$OFFER" ] && [ -z "$just_ran" ]; then
       if offer_command; then
         just_ran=1
@@ -2761,9 +2906,12 @@ show_plan() {
 # is the safe answer: a stray Enter must create or change nothing, and
 # the explanation says so. A no stops with nothing created (exit 1).
 # --non-interactive without --yes never gets here: cmd_setup refuses it
-# with the other option problems.
+# with the other option problems. Keys typed during the checks before it
+# are discarded (discard_typeahead, finding r1f): the answer is one typed
+# after the plan was shown.
 confirm_plan() {
   [ -z "$OPT_YES" ] || return 0
+  discard_typeahead
   if [ -n "$OPT_RESUME" ]; then
     prompt_for check_yes_no \
       "If you answer yes, the script continues the setup as described above; if you answer no, it stops and changes nothing. Pressing Enter alone answers no, so nothing is changed by accident; type yes to go on." \
@@ -2794,7 +2942,9 @@ show_advance_command() {
   OPT_RESUME="$was"
   say "$ADVANCE_INTRO"
   say_command "bash $SHOWN_CMD"
-  [ -n "$OPT_RESUME" ] || say "If the project was not created yet, that command says so and shows the command to start again."
+  [ -n "$OPT_RESUME" ] || say_note "If the project was not created yet, that command says so and shows the command to start again."
+  # The log that follows comes after one blank line (#248 review, N3).
+  LOG_GAP=1
 }
 
 # continue_after_create: the project exists now. From here on, the
@@ -3018,10 +3168,10 @@ offer_public() {
   [ "$PROTECT_PROBLEM" = plan ] || return 0
   [ "$IN_VISIBILITY" = private ] || return 0
   [ -z "$OPT_NON_INTERACTIVE" ] || return 0
-  say "The script can make the project public for you, with the command shown above that starts with gh."
+  say_note "The script can make the project public for you, with the command shown above that starts with gh."
   ask_terminal "Making the project public lets anyone see it and its code, and it cannot be taken back by this script. It runs only if you type yes here; --yes does not cover it." \
     "Make the project public now? (yes or no)" || {
-    say "Not made public."
+    say_log "Not made public."
     return 0
   }
   out="$(make_temp)"
@@ -4327,14 +4477,14 @@ build_failed() {
 
 # The signs of life of the wait for build (E2E run 1, finding 9): each
 # look after the first starts a line of its own, and on a terminal the
-# line stays open and gets a * for each second of the wait after it.
-# Without a terminal (a log, a pipe) there are no stars, and each wait is
-# one pause of CHECKS_DELAY seconds.
+# line is followed by a line of stars, a * for each second of the wait
+# after it: on a line of its own (r1h, Adam: easier to see), which stays
+# open until the next line ends it. Without a terminal (a log, a pipe)
+# there are no stars, and each wait is one pause of CHECKS_DELAY seconds.
+# The lines of the wait and the stars are plain, never dim like the rest
+# of the progress log (r1h: dim, they were hard to see).
 # wait_line <text>: such a line, after the stars of the line before.
-wait_line() {
-  end_line
-  if stdout_is_terminal; then say_open "$1"; else say "$1"; fi
-}
+wait_line() { say_sign "$1"; }
 # wait_with_signs: the wait of CHECKS_DELAY seconds between two looks.
 wait_with_signs() {
   local i=0
@@ -4342,7 +4492,6 @@ wait_with_signs() {
     pause_for "$CHECKS_DELAY"
     return 0
   fi
-  say_open " "
   while [ "$i" -lt "$CHECKS_DELAY" ]; do
     pause_for 1
     say_open "*"
@@ -4656,6 +4805,7 @@ catch_stops() {
 leave_script() {
   local rc=$? work="$WORK_DIR"
   trap - EXIT INT ERR
+  restore_terminal_mode
   UNEXPECTED_LOG=""
   [ -z "$STDERR_LOG" ] || [ ! -s "$STDERR_LOG" ] || UNEXPECTED_LOG="$(tail -5 "$STDERR_LOG" | tr -d '\r')"
   WORK_DIR=""
