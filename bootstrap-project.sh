@@ -79,8 +79,8 @@ set -euo pipefail
 # and these hold the placeholders. These two lines are the only place a
 # placeholder may appear: the build refuses any left in its output, so
 # code compares against these variables, never a literal placeholder.
-SCRIPT_VERSION='v2.8.1'
-SCRIPT_COMMIT='2ff245977c556c19ecbd3dbfe34fcc106e912a6d'
+SCRIPT_VERSION='v2.8.2'
+SCRIPT_COMMIT='053870263799982d27903b0ff09ab96ae36b30d8'
 
 # State of the stop handling (see catch_stops): CLEAN is set by every
 # deliberate stop, CURRENT_STEP is the step being done.
@@ -139,6 +139,7 @@ show_help() {
     "  --yes                      do not ask \"Proceed?\" before creating anything" \
     "  --dry-run                  check everything and show the plan, create nothing" \
     "  --resume                   continue a setup that stopped part way" \
+    "  --again                    start again or continue with the answers saved at the last stop" \
     "  --allow-unprotected        with --resume: go on without protecting the main" \
     "                             version, when a private project cannot be protected" \
     "                             on the GitHub plan" \
@@ -624,6 +625,18 @@ guide_details() {
   [ -z "$1" ] || details_block "$1"
 }
 
+# say_shown_command: the command to start again or to continue
+# (shown_command), with the cd to the folder the script was started in in
+# front of it when that is known (SHOWN_CD), so it works from a new
+# window too (#267 review, B1).
+say_shown_command() {
+  if [ -n "$SHOWN_CD" ]; then
+    say_command "cd $SHOWN_CD && bash $SHOWN_CMD"
+  else
+    say_command "bash $SHOWN_CMD"
+  fi
+}
+
 # ---------- end of messages ----------
 
 # ---------- test hooks ----------
@@ -974,6 +987,10 @@ parse_args() {
           --allow-unprotected) OPT_ALLOW_UNPROTECTED=1 ;;
           --help) show_help; exit 0 ;;
         esac
+        ;;
+      --again)
+        fail 2 "The option --again must come first, right after the name of the script." \
+          "Run the script with --again first and the other options after it, as in bash bootstrap-project.sh --again --dry-run. $OPTIONS_NEXT"
         ;;
       --version)
         # Read where it stands, as --help is: the options after it are not read.
@@ -1498,6 +1515,8 @@ LINUX_WSL=""
 OFFER=""
 RESTART_CMD=""
 RESTART_ARGS=""
+RESTART_SCRIPT=""
+RESTART_ARGV=()
 NO_RECHECK=""
 DQ='"'
 SQ="'"
@@ -1566,27 +1585,35 @@ quote_word() {
 # remember_command <options...>: RESTART_CMD is the command the user ran
 # (without its leading "bash"), to show when they stop at a guide. It
 # leaves out --resume and --allow-unprotected: shown_command adds them
-# where they belong.
+# where they belong. RESTART_SCRIPT is its first word, the script as it
+# was started, and RESTART_ARGV the options, each as it reached the
+# script (for the saved answers, save_again).
 remember_command() {
   local script="${BASH_SOURCE[0]:-}" arg
   if [ -z "$script" ] || [ -n "$SCRIPT_PIPED" ]; then script=bootstrap-project.sh; fi
   RESTART_ARGS=""
+  RESTART_ARGV=()
   for arg in "$@"; do
     case "$arg" in --resume | --allow-unprotected) continue ;; esac
     quote_word "$arg"
     RESTART_ARGS="$RESTART_ARGS $QUOTED"
+    RESTART_ARGV[${#RESTART_ARGV[@]}]="$arg"
   done
   quote_word "$script"
+  RESTART_SCRIPT="$QUOTED"
   RESTART_CMD="$QUOTED$RESTART_ARGS"
 }
 
 # carried_options: CARRIED_OPTS is each answer typed at a question as the
 # option that gives it, so that the command shown at a stop asks nothing
-# again. An answer not given yet (empty) is left out.
+# again. An answer not given yet (empty) is left out. CARRIED_ARGV holds
+# the same words, unquoted.
 CARRIED_OPTS=""
+CARRIED_ARGV=()
 carried_options() {
   local opt value
   CARRIED_OPTS=""
+  CARRIED_ARGV=()
   for opt in --owner --name --project-name --description --po-name --pack --with-deploy --public --license --copyright-holder --dir --git-name --git-email; do
     case " $ANSWERED " in *" $opt "*) ;; *) continue ;; esac
     case "$opt" in
@@ -1607,12 +1634,18 @@ carried_options() {
     [ -n "$value" ] || continue
     case "$opt" in
       --with-deploy)
-        if [ "$value" = yes ]; then CARRIED_OPTS="$CARRIED_OPTS --with-deploy"; else CARRIED_OPTS="$CARRIED_OPTS --without-deploy"; fi
+        if [ "$value" = yes ]; then CARRIED_ARGV[${#CARRIED_ARGV[@]}]=--with-deploy; else CARRIED_ARGV[${#CARRIED_ARGV[@]}]=--without-deploy; fi
+        CARRIED_OPTS="$CARRIED_OPTS ${CARRIED_ARGV[${#CARRIED_ARGV[@]} - 1]}"
         ;;
-      --public) CARRIED_OPTS="$CARRIED_OPTS --$value" ;;
+      --public)
+        CARRIED_OPTS="$CARRIED_OPTS --$value"
+        CARRIED_ARGV[${#CARRIED_ARGV[@]}]="--$value"
+        ;;
       *)
         quote_word "$value"
         CARRIED_OPTS="$CARRIED_OPTS $opt $QUOTED"
+        CARRIED_ARGV[${#CARRIED_ARGV[@]}]="$opt"
+        CARRIED_ARGV[${#CARRIED_ARGV[@]}]="$value"
         ;;
     esac
   done
@@ -1629,25 +1662,171 @@ FRESH_START=""
 # answers typed at the questions, and --allow-unprotected when given.
 # shown_command_with_allow adds --allow-unprotected whether or not it was
 # given (the guide that offers it).
+# End-to-end run 2 repeated, r2l: on a touch-only tablet that long command
+# could not be copied, and every answer was typed again. So its words
+# after the script (SHOWN_ARGV) are saved next to the script (save_again),
+# and SHOWN_CMD is then the short command that reads them back, the
+# script with --again. Where they cannot be saved, it stays the long one.
+# SHOWN_CD is the folder the script was started in (START_DIR), as the
+# cd in front of the command writes it: ~/... under the home folder,
+# else quoted. Guides send the user to a new window, which starts in
+# the home folder (#267 review, B1): the script path and a --dir such as
+# ./my-app are read from the folder the script was started in.
 SHOWN_CMD=""
+SHOWN_CD=""
+SHOWN_ARGV=()
+START_DIR=""
+start_cd() {
+  local home="${HOME:-}"
+  SHOWN_CD=""
+  [ -n "$START_DIR" ] || return 0
+  case "$START_DIR" in *"$NL"*) return 0 ;; esac
+  # The home folder is read back with cd and pwd, as START_DIR is, so a
+  # HOME written with a // or a / at the end still matches it.
+  if [ -n "$home" ]; then home="$(CDPATH='' cd -- "$home" 2>/dev/null && pwd)" || home=""; fi
+  if [ -n "$home" ] && [ "$START_DIR" = "$home" ]; then
+    SHOWN_CD="~"
+  elif [ -n "$home" ] && [ "${START_DIR#"$home"/}" != "$START_DIR" ]; then
+    quote_word "${START_DIR#"$home"/}"
+    SHOWN_CD="~/$QUOTED"
+  else
+    quote_word "$START_DIR"
+    SHOWN_CD="$QUOTED"
+  fi
+}
 shown_command() {
+  start_cd
   [ -n "$RESTART_CMD" ] || remember_command
   SHOWN_CMD="$RESTART_CMD"
+  SHOWN_ARGV=(${RESTART_ARGV[@]+"${RESTART_ARGV[@]}"})
   if [ -z "$FRESH_START" ] && { [ -n "$CREATED_NOTE" ] || [ -n "$OPT_RESUME" ]; }; then
     SHOWN_CMD="$SHOWN_CMD --resume"
+    SHOWN_ARGV[${#SHOWN_ARGV[@]}]=--resume
   fi
   carried_options
   SHOWN_CMD="$SHOWN_CMD$CARRIED_OPTS"
+  SHOWN_ARGV=(${SHOWN_ARGV[@]+"${SHOWN_ARGV[@]}"} ${CARRIED_ARGV[@]+"${CARRIED_ARGV[@]}"})
   if [ -z "$FRESH_START" ] && [ -n "$OPT_ALLOW_UNPROTECTED" ]; then
     SHOWN_CMD="$SHOWN_CMD --allow-unprotected"
+    SHOWN_ARGV[${#SHOWN_ARGV[@]}]=--allow-unprotected
   fi
+  if save_again ${SHOWN_ARGV[@]+"${SHOWN_ARGV[@]}"}; then SHOWN_CMD="$RESTART_SCRIPT --again"; fi
+  return 0
 }
+# The option is added after the saved answers as well, on the short
+# command's line: --again takes the options after it.
 shown_command_with_allow() {
   local was="$OPT_ALLOW_UNPROTECTED"
   OPT_ALLOW_UNPROTECTED=""
   shown_command
   OPT_ALLOW_UNPROTECTED="$was"
   SHOWN_CMD="$SHOWN_CMD --allow-unprotected"
+}
+
+# ---------- the saved answers (--again) ----------
+# AGAIN_DIR: the folder the script runs from (where step 1 of the README
+# puts it), which holds the saved answers, AGAIN_NAME. Empty when the
+# script was piped into bash, or sourced (the tests): then nothing is
+# saved, and the long command is shown. One file per folder: each stop
+# writes it anew, and the line at the start of --again names the project
+# it is for.
+AGAIN_NAME=.bootstrap-project.again
+AGAIN_DIR=""
+# AGAIN_SAVED: this run wrote the file, so a finished setup removes it.
+AGAIN_SAVED=""
+AGAIN_ARGS=()
+# AGAIN_TMP: the temporary file save_again is writing, removed on the way
+# out (leave_script) if a stop comes before it is moved into place.
+AGAIN_TMP=""
+
+# find_again_dir: sets AGAIN_DIR (run by main, never when sourced).
+find_again_dir() {
+  AGAIN_DIR=""
+  [ -z "$SCRIPT_PIPED" ] || return 0
+  AGAIN_DIR="$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)" || AGAIN_DIR=""
+}
+
+# save_again <words...>: writes the words, one per line, to AGAIN_NAME in
+# AGAIN_DIR, readable by the user only (they hold the answers, the git
+# email too); returns 1, and writes nothing, when that cannot be done: no
+# AGAIN_DIR, a word with a line break (it cannot be one line), AGAIN_DIR
+# inside the project's copy (the file would be a change in it), or a
+# write that fails. A temporary file in the same folder is moved over the
+# old one, so a stop half way through never leaves half a file.
+save_again() {
+  local here copy tmp word
+  [ -n "$AGAIN_DIR" ] || return 1
+  # No words (no option given and no answer yet, as README step 1 starts
+  # it): the plain command is shown; a file would hold one empty line
+  # (#267 review, B1).
+  [ "$#" -gt 0 ] || return 1
+  for word in "$@"; do
+    case "$word" in *"$NL"*) return 1 ;; esac
+  done
+  here="$(CDPATH='' cd -- "$AGAIN_DIR" 2>/dev/null && pwd -P)" || return 1
+  if [ -n "$IN_DIR" ] && [ -d "$IN_DIR" ]; then
+    copy="$(CDPATH='' cd -- "$IN_DIR" 2>/dev/null && pwd -P)" || copy=""
+    if [ -n "$copy" ]; then
+      case "$here/" in "$copy/"*) return 1 ;; esac
+    fi
+  fi
+  [ ! -d "$AGAIN_DIR/$AGAIN_NAME" ] || return 1
+  tmp="$(umask 077 && mktemp "$AGAIN_DIR/$AGAIN_NAME.XXXXXX" 2>/dev/null)" || return 1
+  AGAIN_TMP="$tmp"
+  chmod 600 "$tmp" 2>/dev/null || true
+  if printf '%s\n' "$@" >"$tmp" 2>/dev/null && mv -f -- "$tmp" "$AGAIN_DIR/$AGAIN_NAME" 2>/dev/null; then # not-user-facing
+    AGAIN_TMP=""
+    AGAIN_SAVED=1
+    return 0
+  fi
+  rm -f -- "$tmp"
+  AGAIN_TMP=""
+  return 1
+}
+
+# read_again: AGAIN_ARGS is the saved answers, one word per line, read as
+# words and never run; then one line says which project they are for. No
+# file, or one that cannot be read or is empty, stops (exit 2).
+read_again() {
+  local f="$AGAIN_DIR/$AGAIN_NAME" line owner="" name="" prev="" project words=""
+  AGAIN_ARGS=()
+  if [ -n "$AGAIN_DIR" ] && [ -f "$f" ] && [ -r "$f" ]; then
+    while IFS= read -r line || [ -n "$line" ]; do
+      line="${line%"$CR"}"
+      [ -z "$line" ] || words=1
+      AGAIN_ARGS[${#AGAIN_ARGS[@]}]="$line"
+    done <"$f" || AGAIN_ARGS=()
+  fi
+  # Only empty lines are no saved answers either.
+  [ -n "$words" ] || AGAIN_ARGS=()
+  [ "${#AGAIN_ARGS[@]}" -gt 0 ] || fail 2 "There are no saved answers for --again next to this script: the file $AGAIN_NAME is not in its folder, cannot be read, or holds no answers. The script saves them when it stops, in the folder it runs from." \
+    "Start the script as in step 1 of the README: it asks for each answer, and if it stops, it shows the command to run next."
+  for line in "${AGAIN_ARGS[@]}"; do
+    case "$prev" in
+      --owner) owner="$line" ;;
+      --name) name="$line" ;;
+    esac
+    case "$line" in
+      --owner=*) owner="${line#--owner=}" ;;
+      --name=*) name="${line#--name=}" ;;
+    esac
+    prev="$line"
+  done
+  if [ -n "$name" ]; then
+    project="for the project ${owner:+$owner/}$name"
+  else
+    project="before a project name was given"
+  fi
+  say "Using the answers saved when the script stopped last time, $project."
+}
+
+# remove_again: a finished setup removes the file it wrote, and only that
+# file, when it is still a file of its own in that folder.
+remove_again() {
+  local f="$AGAIN_DIR/$AGAIN_NAME"
+  [ -n "$AGAIN_SAVED" ] && [ -n "$AGAIN_DIR" ] || return 0
+  if [ -f "$f" ] && [ ! -L "$f" ]; then rm -f -- "$f"; fi
+  AGAIN_SAVED=""
 }
 
 # stop_at_guide: the user stopped at a guide, or --non-interactive (or a
@@ -1659,12 +1838,12 @@ stop_at_guide() {
   shown_command
   if [ -n "$CREATED_NOTE" ]; then
     say "$CONTINUE_INTRO"
-    say_command "bash $SHOWN_CMD"
+    say_shown_command
     fail 3 "$GUIDE_TITLE The script stopped here. $CREATED_NOTE" \
       "Follow the steps above, then run the command shown to continue the setup."
   fi
   say "$START_AGAIN_INTRO"
-  say_command "bash $SHOWN_CMD"
+  say_shown_command
   fail 3 "$GUIDE_TITLE The script stopped here, and nothing was created." \
     "Follow the steps above, then run the command shown to start again."
 }
@@ -2040,31 +2219,58 @@ guide_npm() {
 guide_npm_windows() {
   guide_begin "The npm this Linux finds is the Windows one, so npm (part of Node.js) is not installed in this Linux." \
     "This Linux runs inside Windows (WSL, the Windows Subsystem for Linux), and the npm it found, $NPM_WINDOWS_PATH, is a Windows program. A project in this Linux should use a Node.js installed in Linux: the node, web and react-native packs use npm to record the exact versions of the tools your project uses, so that its checks on GitHub can install the same ones."
-  guide_step "Open https://nodejs.org/en/download in your browser. It shows the steps for Windows, because the browser runs on Windows: where the page says Windows, choose Linux instead, and keep the version marked LTS (the one with long-term support)."
-  guide_step "Open another window of this Linux (from the Start menu, as you opened this one) and run there, one by one, the commands the page shows: they install Node.js, which includes npm, in this Linux."
-  guide_step "Close this window, open a new window of this Linux, and start the script there, so that it finds the new npm before the Windows one."
+  npm_steps_in_wsl
   guide_end "the script says \"Done. npm is installed.\"" \
     "if the script still says that the npm it finds is the Windows one, check that the commands from the page ended without an error, then open a new window of this Linux and start the script there." \
     "it looks where the npm it finds is, following links: one in the folder of a Windows drive (/mnt/c/, /mnt/d/ and so on, where this Linux shows the Windows drives) is the Windows one. Otherwise it runs npm --version, which works only when npm is installed."
 }
 
+# npm_steps_in_wsl: in WSL, the steps to install Node.js in this Linux,
+# for both npm guides (end-to-end run 2 repeated, r2i). The browser runs
+# on Windows, so nodejs.org offers the Windows steps first.
+npm_steps_in_wsl() {
+  guide_step "Open https://nodejs.org/en/download in your browser. It shows the steps for Windows, because the browser runs on Windows: where the page says Windows, choose Linux instead, and keep the version marked LTS (the one with long-term support)."
+  guide_step "Open another window of this Linux (from the Start menu, as you opened this one) and run there, one by one, the commands the page shows: they install Node.js, which includes npm, in this Linux."
+  npm_step_new_window "a new window of this Linux"
+}
+
+# npm_step_new_window <window>: the last step on Linux and in WSL. The
+# page's Linux steps install Node.js with nvm, which puts npm on PATH only
+# for windows opened after it: this script, waiting in this window, cannot
+# find it (r2j), so it is started again in a new window. The command to
+# start again is shown only after q (#255 review, N2).
+npm_step_new_window() {
+  guide_step "When they have finished, type q here if the script waits, and copy the command it shows to start again. Then close this window, open $1, and run that command there: the new npm is found only in a window opened after the install."
+}
+
 guide_npm_missing() {
+  local other="if the script still says that npm is not installed, close this window, open a new one, and start the script again there."
   guide_begin "npm (part of Node.js) is not installed." \
     "The node, web and react-native packs use npm to record the exact versions of the tools your project uses, so that its checks on GitHub can install the same ones."
-  guide_step "Open https://nodejs.org in your browser and download the version marked LTS (the one with long-term support)."
   case "$OS_KIND" in
-    macos) guide_step "Open the downloaded file and follow the installer, then come back to this window." ;;
+    macos)
+      guide_step "Open https://nodejs.org in your browser and download the version marked LTS (the one with long-term support)."
+      guide_step "Open the downloaded file and follow the installer, then come back to this window."
+      ;;
     windows)
+      guide_step "Open https://nodejs.org in your browser and download the version marked LTS (the one with long-term support)."
       guide_step "Run the downloaded installer, keeping the default choices."
       guide_step "Close this window, open Git Bash again from the Start menu, and start the script there, so that it finds npm."
       ;;
     *)
-      guide_step "On the download page choose your system and follow the steps shown there; the Node.js in your system's own software list may be older than the one your project's checks use."
-      guide_step "Come back to this window."
+      if [ -n "$LINUX_WSL" ]; then
+        npm_steps_in_wsl
+        other="if the script still says that npm is not installed, check that the commands from the page ended without an error, then start the script again in a new window of this Linux."
+      else
+        guide_step "Open https://nodejs.org/en/download in your browser. Keep Linux and the version marked LTS (the one with long-term support) chosen there; the Node.js in your system's own software list may be older than the one your project's checks use."
+        guide_step "Open another terminal window and run there, one by one, the commands the page shows: they install Node.js, which includes npm."
+        npm_step_new_window "a new terminal window"
+        other="if the script still says that npm is not installed, check that the commands from the page ended without an error, then start the script again in a new terminal window."
+      fi
       ;;
   esac
   guide_end "the script says \"Done. npm is installed.\"" \
-    "if the script still says that npm is not installed, close this window, open a new one, and start the script again there." \
+    "$other" \
     "it runs npm --version, which works only when npm is installed."
 }
 
@@ -2299,6 +2505,11 @@ BOOTSTRAPPER=factoincognito/ai-project-bootstrap
 # clause built from GH_GIT_QUESTION_TEXT.
 GH_GIT_QUESTION_TEXT='Authenticate Git with your GitHub credentials?'
 GH_GIT_QUESTION_STEP="If gh asks \"$GH_GIT_QUESTION_TEXT\", answer Yes: type y and press Enter, or just press Enter."
+# GH_SIGN_IN_FIRST_STEP: the step every guide that has the user enter
+# gh's one-time code on GitHub's device page gives before the step with
+# the code. On a browser not signed in to GitHub, the page first asks
+# for the GitHub sign-in (end-to-end run 2 repeated, r2h).
+GH_SIGN_IN_FIRST_STEP="If your browser is not signed in to GitHub, GitHub first asks you to sign in: your user name or email address, your password, and a two-factor code if you use one. Then it shows the page for the code."
 SIGN_IN_COMMAND_NEXT="Sign in to GitHub with gh as in step 0 of the README, with the command gh auth login -h github.com -p https -w -s workflow (if gh asks \"$GH_GIT_QUESTION_TEXT\", answer Yes), then start the script again."
 SIGN_IN_CONTINUE_NEXT="Sign in to GitHub with gh as in step 0 of the README, with the command gh auth login -h github.com -p https -w -s workflow (if gh asks \"$GH_GIT_QUESTION_TEXT\", answer Yes), then continue the setup with the command shown above."
 
@@ -2378,7 +2589,7 @@ api_raw() {
 stop_with_error() {
   shown_command
   if [ -n "$CREATED_NOTE" ]; then say "$CONTINUE_INTRO"; else say "$START_AGAIN_INTRO"; fi
-  say_command "bash $SHOWN_CMD"
+  say_shown_command
   fail "${STOP_CODE:-1}" "${1:-Something unexpected happened.}${CREATED_NOTE:+ $CREATED_NOTE}" "$2" "$3"
 }
 
@@ -2500,7 +2711,9 @@ guide_github_account() {
   guide_step "Open a second terminal window and run this command there; it is the sign-in command from step 0 of the README:"
   say_command "gh auth login -h github.com -p https -w -s workflow"
   guide_step "$GH_GIT_QUESTION_STEP"
-  guide_step "gh shows a one-time code (eight letters and digits, such as ABCD-1234) and asks you to press Enter: copy the code, then press Enter. Your browser opens GitHub's device page: paste the code, click Continue, then approve with the green Authorize button."
+  guide_step "gh shows a one-time code (eight letters and digits, such as ABCD-1234) and asks you to press Enter: copy the code, then press Enter. Your browser opens GitHub's device page."
+  guide_step "$GH_SIGN_IN_FIRST_STEP"
+  guide_step "On the page for the code, paste the code, click Continue, then approve with the green Authorize button."
   guide_step "Come back to this window."
   guide_end "gh says \"Logged in as\" with your account name, and the script says \"Done. gh is signed in to GitHub as\" with your account name." \
     "if the browser does not open, open https://github.com/login/device yourself and type the code there." \
@@ -2609,6 +2822,11 @@ guide_old_script() {
     "it reads the version written in the bootstrapper's CHANGELOG.md file on GitHub and compares it with its own. It cannot check again in this run, so it stops here."
   NO_RECHECK=1
   RESTART_CMD="bootstrap-project.sh$RESTART_ARGS"
+  RESTART_SCRIPT=bootstrap-project.sh
+  # The new copy reads its saved answers from its own folder, the one the
+  # download command writes it to: this folder. They are saved only when
+  # this script runs from it too.
+  if [ -n "$AGAIN_DIR" ] && [ "$(CDPATH='' cd -- "$AGAIN_DIR" 2>/dev/null && pwd -P)" != "$(pwd -P)" ]; then AGAIN_DIR=""; fi
 }
 
 preflight_published_version() {
@@ -2685,7 +2903,9 @@ guide_github_permissions() {
   esac
   guide_step "$GH_GIT_QUESTION_STEP"
   guide_step "gh shows a one-time code (eight letters and digits, such as ABCD-1234) and asks you to press Enter: copy the code, then press Enter."
-  guide_step "Your browser opens https://github.com/login/device: paste the code, click Continue, then approve with the green Authorize button."
+  guide_step "Your browser opens https://github.com/login/device."
+  guide_step "$GH_SIGN_IN_FIRST_STEP"
+  guide_step "On the page for the code, paste the code, click Continue, then approve with the green Authorize button."
   guide_step "Come back to this window."
   guide_end "gh says that it is done, and the script says \"Done. gh has the permissions on GitHub that the setup needs.\"" \
     "if the browser does not open, open https://github.com/login/device yourself and type the code there." \
@@ -3025,7 +3245,7 @@ show_advance_command() {
   shown_command
   OPT_RESUME="$was"
   say "$ADVANCE_INTRO"
-  say_command "bash $SHOWN_CMD"
+  say_shown_command
   [ -n "$OPT_RESUME" ] || say_note "If the project was not created yet, that command says so and shows the command to start again."
   # The log that follows comes after one blank line (#248 review, N3).
   LOG_GAP=1
@@ -3306,7 +3526,7 @@ guide_protect() {
     if [ "$PROTECT_PROBLEM" = plan ]; then
       guide_step "Or carry on without protection: changes could then go straight into the main version, and the setup writes that decision into the project. Continue with this command:"
       shown_command_with_allow
-      say_command "bash $SHOWN_CMD"
+      say_shown_command
     fi
   fi
   if [ "$PROTECT_PROBLEM" != plan ]; then
@@ -4889,6 +5109,8 @@ catch_stops() {
 leave_script() {
   local rc=$? work="$WORK_DIR"
   trap - EXIT INT ERR
+  if [ -n "$AGAIN_TMP" ]; then rm -f -- "$AGAIN_TMP"; fi
+  AGAIN_TMP=""
   restore_terminal_mode
   UNEXPECTED_LOG=""
   [ -z "$STDERR_LOG" ] || [ ! -s "$STDERR_LOG" ] || UNEXPECTED_LOG="$(tail -5 "$STDERR_LOG" | tr -d '\r')"
@@ -5452,6 +5674,7 @@ cmd_setup() {
     confirm_plan
     show_advance_command
     run_steps "$RESUME_STATE"
+    remove_again
     return 0
   fi
   show_plan
@@ -5464,14 +5687,25 @@ cmd_setup() {
   create_project
   wait_for_files
   run_steps template
+  remove_again
 }
 
 # ---------- main ----------
 
 main() {
+  START_DIR="$(pwd 2>/dev/null)" || START_DIR=""
   case "${1:-}" in
     layout-pack) shift; cmd_layout_pack "$@" ;;
-    *) cmd_setup "$@" ;;
+    --again)
+      # The saved answers come first, the options after --again follow
+      # them (r2l), so an option given again wins.
+      shift
+      find_again_dir
+      read_again
+      set -- "${AGAIN_ARGS[@]}" "$@"
+      cmd_setup "$@"
+      ;;
+    *) find_again_dir; cmd_setup "$@" ;;
   esac
 }
 
