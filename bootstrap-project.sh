@@ -28,7 +28,7 @@
 #     Asks for each answer not given as an option, then checks them all.
 #     --help lists the options; --non-interactive asks nothing.
 #     --version prints the version and the commit it was built from.
-#   bash bootstrap-project.sh layout-pack <node|web|python|react-native> <target-dir>
+#   bash bootstrap-project.sh layout-pack <node|web|python|react-native|csharp> <target-dir>
 #     Lays out a language pack in <target-dir>, which must be empty or
 #     absent. The packs are read from PACKS_DIR, by default the
 #     languages/ folder next to this script.
@@ -79,8 +79,8 @@ set -euo pipefail
 # and these hold the placeholders. These two lines are the only place a
 # placeholder may appear: the build refuses any left in its output, so
 # code compares against these variables, never a literal placeholder.
-SCRIPT_VERSION='v2.8.2'
-SCRIPT_COMMIT='053870263799982d27903b0ff09ab96ae36b30d8'
+SCRIPT_VERSION='v2.8.3'
+SCRIPT_COMMIT='973cb894b9909992ad8f1782f6088fe227064aae'
 
 # State of the stop handling (see catch_stops): CLEAN is set by every
 # deliberate stop, CURRENT_STEP is the step being done.
@@ -96,7 +96,7 @@ WORK_DIR=""
 # any word: it shows an exact command for the user to copy.
 
 usage() {
-  printf '%s\n' "usage: bootstrap-project.sh layout-pack <node|web|python|react-native> <target-dir>" \
+  printf '%s\n' "usage: bootstrap-project.sh layout-pack <node|web|python|react-native|csharp> <target-dir>" \
     "   or: bootstrap-project.sh [options]   (run it with --help to see them)" >&2
   CLEAN=1
   exit 2
@@ -106,7 +106,7 @@ usage() {
 show_help() {
   printf '%s\n' \
     "usage: bootstrap-project.sh [options]" \
-    "       bootstrap-project.sh layout-pack <node|web|python|react-native> <target-dir>" \
+    "       bootstrap-project.sh layout-pack <node|web|python|react-native|csharp> <target-dir>" \
     "" \
     "Sets up a new project on GitHub. It asks a question for each answer" \
     "that is not given as an option below." \
@@ -422,7 +422,7 @@ fail() {
 
 # Texts used by more than one message. They live here so the tests
 # check them with the rest.
-LP_PACK_NEXT="Choose one of the packs: node, web, python or react-native."
+LP_PACK_NEXT="Choose one of the packs: node, web, python, react-native or csharp."
 LP_BROKEN_NEXT="This copy of the bootstrapper is incomplete. Download it again; if that does not help, report it to the bootstrapper's maintainers."
 SETUP_BROKEN_NEXT="The project was made from the current bootstrapper, so downloading the script again does not help. Report it to the bootstrapper's maintainers and show them the details below."
 ASK_NO_DEFAULT="There is no default, because only you can choose it."
@@ -764,8 +764,19 @@ app.json app.json
 starter/src/ src/"
       not_laid_out="code-standards.md"
       ;;
+    csharp)
+      table="$common
+editorconfig .editorconfig
+global.json global.json
+Directory.Build.props Directory.Build.props
+Directory.Packages.props Directory.Packages.props
+Project.slnx Project.slnx
+starter/src/ src/
+starter/tests/ tests/"
+      not_laid_out="code-standards.md"
+      ;;
     *)
-      fail 2 "layout-pack: unknown pack: $pack (expected node, web, python or react-native)" "$LP_PACK_NEXT"
+      fail 2 "layout-pack: unknown pack: $pack (expected node, web, python, react-native or csharp)" "$LP_PACK_NEXT"
       ;;
   esac
   LP_KEPT="$not_laid_out"
@@ -2125,7 +2136,10 @@ gh_install_steps() {
         guide_step "Run this command; it uses winget, the installer that comes with Windows:"
         if [ "$1" = upgrade ]; then offered winget-gh-upgrade show; OFFER=winget-gh-upgrade; else offered winget-gh show; OFFER=winget-gh; fi
       else
-        guide_step "Open https://cli.github.com in your browser, click Download for Windows, and run the downloaded installer, keeping the default choices."
+        # The page's Windows options read "Windows - WinGet" and "Windows -
+        # Download MSI" (end-to-end run 3, r3b; there is no "Download for
+        # Windows" button any more).
+        guide_step "Open https://cli.github.com in your browser, choose the Windows option that says Download MSI (not the one that says WinGet), and run the downloaded installer, keeping the default choices."
       fi
       guide_step "Close this window, open Git Bash again from the Start menu, and start the script there, so that it finds the new gh."
       ;;
@@ -2255,7 +2269,11 @@ guide_npm_missing() {
     windows)
       guide_step "Open https://nodejs.org in your browser and download the version marked LTS (the one with long-term support)."
       guide_step "Run the downloaded installer, keeping the default choices."
-      guide_step "Close this window, open Git Bash again from the Start menu, and start the script there, so that it finds npm."
+      # End-to-end run 4, r4a: a window opened from this one keeps the
+      # PATH it started with; the installer changes PATH only for windows
+      # started afterwards from the Start menu, so the step says why.
+      guide_step "Close this window, open Git Bash again from the Start menu, and start the script there. Use the Start menu, not a new window opened from this one: a window opened from another one keeps that window's old list of the folders where programs are found, so it would not find the new npm either."
+      other="if the script still says that npm is not installed, close this window, open Git Bash again from the Start menu (not from this window), and start the script again there."
       ;;
     *)
       if [ -n "$LINUX_WSL" ]; then
@@ -3208,7 +3226,10 @@ show_plan() {
 
 # confirm_plan: "Proceed?", unless --yes. The default is no, because it
 # is the safe answer: a stray Enter must create or change nothing, and
-# the explanation says so. A no stops with nothing created (exit 1).
+# the explanation says so. A no stops with nothing created (exit 1), like
+# every other stop: it saves the answers and shows the command to start
+# again, or to continue with --resume (end-to-end run 3, r3d: an Enter
+# by accident would otherwise mean typing every answer again).
 # --non-interactive without --yes never gets here: cmd_setup refuses it
 # with the other option problems. Keys typed during the checks before it
 # are discarded (discard_typeahead, finding r1f): the answer is one typed
@@ -3221,15 +3242,21 @@ confirm_plan() {
       "If you answer yes, the script continues the setup as described above; if you answer no, it stops and changes nothing. Pressing Enter alone answers no, so nothing is changed by accident; type yes to go on." \
       "Proceed? (yes or no)" no
     [ "$CHECKED" != yes ] || return 0
+    shown_command
+    say "$CONTINUE_INTRO"
+    say_shown_command
     fail 1 "You answered no, so the script stopped, and nothing was changed." \
-      "To continue the setup, run the script again and answer yes."
+      "Run the command shown to continue the setup, and answer yes."
   fi
   prompt_for check_yes_no \
     "If you answer yes, the script creates the project on GitHub and carries out the plan above; if you answer no, it stops and creates nothing. Pressing Enter alone answers no, so nothing is created by accident; type yes to go on." \
     "Proceed? (yes or no)" no
   [ "$CHECKED" != yes ] || return 0
+  shown_command
+  say "$START_AGAIN_INTRO"
+  say_shown_command
   fail 1 "You answered no, so the script stopped, and nothing was created." \
-    "To set up the project, start the script again and answer yes."
+    "Run the command shown to start again, and answer yes."
 }
 
 # show_advance_command: after the yes (or --yes) and before the first
@@ -4812,7 +4839,9 @@ wait_for_build() {
   duration_words $((IN_CI_TIMEOUT * 60))
   limit="$DURATION"
   step_start "Waiting for the project's check build to pass on the proposed change, for at most $limit"
-  say_note "That is the limit: if build has not passed after $limit, the script stops, leaves the proposed change open and shows how to continue (--ci-timeout sets a different limit)."
+  # The note says on its own what the limit is (end-to-end run 3, r3e):
+  # it is in another colour than the line above it.
+  say_note "The script waits at most $limit for build to pass. If build has not passed by then, the script stops, leaves the proposed change open and shows how to continue (--ci-timeout sets a different limit)."
   say_note "You can follow the check here: $PR_URL/checks"
   max=$((IN_CI_TIMEOUT * 60 / CHECKS_DELAY))
   while :; do
