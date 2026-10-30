@@ -224,12 +224,19 @@ same `cd`: the one you ran, with every answer in it.
   start a chat inside the Claude Project; the project's instructions for
   Claude (the file `CLAUDE.md`) do the rest. A Claude Project is a
   workspace in the Claude app that keeps the chats and files of one
-  project together. If the Claude GitHub App on your account is limited
-  to selected projects, add the new one on GitHub first: your picture, top right, then
-  Settings, Applications, Configure next to the Claude app, and add the
-  project under the choice
-  Only select repositories (the projects it may read).
-  This last part has not been checked yet.
+  project together. Claude's help pages say how:
+  - To create a Claude Project: "How can I create and manage projects?",
+    https://support.claude.com/en/articles/9519177-how-can-i-create-and-manage-projects
+  - To add the GitHub project to it: the help page on the GitHub
+    integration,
+    https://support.claude.com/en/articles/10167454-using-the-github-integration
+    It gives these steps: in the Claude Project, click the "+" button at
+    the top right of the project knowledge section, then "GitHub", then
+    search for the project or paste its web address (the script prints
+    it), then choose the files. If Claude cannot reach a private project
+    after you paste its address, the page links to the Claude GitHub App,
+    where someone who administers the project on GitHub gives Claude
+    access to it.
 - Working from another computer later: follow "Working from another
   computer" in the new project's README.
 - Organisation and billing settings: in an organisation, only its
@@ -259,10 +266,13 @@ here first:
   - gh installed, but too old for the script;
   - Node.js and npm not installed (only for the node, web and
     react-native packs; the guide points to https://nodejs.org). On
-    Linux, and in Linux on Windows (WSL), only a window opened after the
-    install finds the new npm, so this one does not go on with Enter:
-    type `q`, then start the script again in a new window with the
-    command it shows;
+    Linux, in Linux on Windows (WSL) and on Windows (Git Bash), only a
+    window opened after the install finds the new npm, so this one does
+    not go on with Enter: type `q`, copy the command it shows, close the
+    window, and run that command in a new window. On Windows, open that
+    window from the Start menu, not from the window you are closing: a
+    window opened from another one keeps the old list of the folders
+    where programs are found;
   - only the Windows npm found in Linux on Windows (WSL): a project in
     Linux should not use it, and the guide shows how to install Node.js
     in Linux, then start again in a new window, as above;

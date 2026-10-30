@@ -79,8 +79,8 @@ set -euo pipefail
 # and these hold the placeholders. These two lines are the only place a
 # placeholder may appear: the build refuses any left in its output, so
 # code compares against these variables, never a literal placeholder.
-SCRIPT_VERSION='v2.8.4'
-SCRIPT_COMMIT='3200842b1b1bdb7c737f83c3f59e305d4c0eea5f'
+SCRIPT_VERSION='v2.8.5'
+SCRIPT_COMMIT='010b12ed07f51cd03036e9ff628723aa2f5dbe07'
 
 # State of the stop handling (see catch_stops): CLEAN is set by every
 # deliberate stop, CURRENT_STEP is the step being done.
@@ -2028,7 +2028,9 @@ guide_git() {
       else
         guide_step "Open https://git-scm.com/download/win in your browser, download Git for Windows and run the installer, keeping the default choices."
       fi
-      guide_step "Close this window, open Git Bash again from the Start menu, and start the script there, so that it finds git."
+      # p2.8.4-e: the command to start again is shown only after q (see
+      # the npm guide, p2.8.4-c).
+      guide_step "When the install has finished, type q here if the script waits, and copy the command it shows to start again. Then close this window, open Git Bash again from the Start menu, and run that command there, so that it finds git."
       guide_end "the script says \"Done. git is installed.\"" \
         "if the script still says that git is not installed, check that you opened Git Bash again after the install." \
         "it runs git --version, which works only when git is installed."
@@ -2105,8 +2107,9 @@ guide_gh_missing() {
   guide_begin "The GitHub command-line tool (gh) is not installed." \
     "The script uses gh to talk to GitHub for you: to create your project there and to check it."
   gh_install_steps install
+  gh_see_something_else "not installed"
   guide_end "the script says \"Done. gh is installed and can create a project from a template.\"" \
-    "if the script still says that gh is not installed, close this window, open a new one, and start the script again there." \
+    "$GH_ELSE" \
     "it runs gh --version, which works only when gh is installed."
 }
 
@@ -2114,9 +2117,21 @@ guide_gh_old() {
   guide_begin "The GitHub command-line tool (gh) on this computer is too old." \
     "The script needs a gh that can create a project from a template, read its checks and add a proposed change, which older versions of gh cannot do."
   gh_install_steps upgrade
+  gh_see_something_else "too old"
   guide_end "the script says \"Done. gh is installed and can create a project from a template.\"" \
-    "if the script still says that gh is too old, close this window, open a new one, and start the script again there." \
+    "$GH_ELSE" \
     "it checks that gh's commands for creating a project, for reading its checks and for adding a proposed change offer the options the script uses: --template, --json and --match-head-commit."
+}
+
+# gh_see_something_else <what>: sets GH_ELSE, the "If you see something
+# else" line of both gh guides. On Windows it says what the last step
+# says (p2.8.4-e).
+GH_ELSE=""
+gh_see_something_else() {
+  case "$OS_KIND" in
+    windows) GH_ELSE="if the script still says that gh is $1, type q if the script waits and copy the command it shows; then close this window, open Git Bash again from the Start menu (not from this window), and run that command there." ;;
+    *) GH_ELSE="if the script still says that gh is $1, close this window, open a new one, and start the script again there." ;;
+  esac
 }
 
 # gh_install_steps install|upgrade: the steps both gh guides share.
@@ -2141,7 +2156,8 @@ gh_install_steps() {
         # Windows" button any more).
         guide_step "Open https://cli.github.com in your browser, choose the Windows option that says Download MSI (not the one that says WinGet), and run the downloaded installer, keeping the default choices."
       fi
-      guide_step "Close this window, open Git Bash again from the Start menu, and start the script there, so that it finds the new gh."
+      # p2.8.4-e: as in the git and npm guides, q first.
+      guide_step "When the install has finished, type q here if the script waits, and copy the command it shows to start again. Then close this window, open Git Bash again from the Start menu, and run that command there, so that it finds the new gh."
       ;;
     linux)
       guide_step "Open https://github.com/cli/cli/blob/trunk/docs/install_linux.md in your browser and follow the steps for your system; the gh in your system's own software list may be too old."
@@ -2272,8 +2288,10 @@ guide_npm_missing() {
       # End-to-end run 4, r4a: a window opened from this one keeps the
       # PATH it started with; the installer changes PATH only for windows
       # started afterwards from the Start menu, so the step says why.
-      guide_step "Close this window, open Git Bash again from the Start menu, and start the script there. Use the Start menu, not a new window opened from this one: a window opened from another one keeps that window's old list of the folders where programs are found, so it would not find the new npm either."
-      other="if the script still says that npm is not installed, close this window, open Git Bash again from the Start menu (not from this window), and start the script again there."
+      # p2.8.4-c: the command to start again is shown only after q, so
+      # the step says to type q first, as on Linux and in WSL.
+      guide_step "When the installer has finished, type q here if the script waits, and copy the command it shows to start again. Then close this window, open Git Bash again from the Start menu, and run that command there. Use the Start menu, not a new window opened from this one: a window opened from another one keeps that window's old list of the folders where programs are found, so it would not find the new npm either."
+      other="if the script still says that npm is not installed, type q if the script waits and copy the command it shows; then close this window, open Git Bash again from the Start menu (not from this window), and run that command there."
       ;;
     *)
       if [ -n "$LINUX_WSL" ]; then
@@ -5065,7 +5083,7 @@ finish_copy() {
 # script prints, where to go when stuck (end-to-end run 1, finding 10).
 # One text for every ending of report, so the endings cannot drift.
 say_what_next() {
-  say "What to do next: in the Claude app, create a Claude Project for this project, add the project on GitHub, https://github.com/$IN_OWNER/$IN_NAME, to that Claude Project, and start a chat inside the Claude Project. The file CLAUDE.md in the project tells Claude the rest."
+  say "What to do next: in the Claude app, create a Claude Project for this project (how: https://support.claude.com/en/articles/9519177-how-can-i-create-and-manage-projects), add the project on GitHub, https://github.com/$IN_OWNER/$IN_NAME, to that Claude Project (how: https://support.claude.com/en/articles/10167454-using-the-github-integration), and start a chat inside the Claude Project. The file CLAUDE.md in the project tells Claude the rest."
   say "If you ever feel stuck and do not know how to go on, Clead (Claude, the project's Tech Owner) is always there to help: just ask Clead for help, a recommendation or advice in the chat."
 }
 
