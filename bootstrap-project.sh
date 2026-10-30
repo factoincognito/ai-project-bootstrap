@@ -79,8 +79,8 @@ set -euo pipefail
 # and these hold the placeholders. These two lines are the only place a
 # placeholder may appear: the build refuses any left in its output, so
 # code compares against these variables, never a literal placeholder.
-SCRIPT_VERSION='v2.8.3'
-SCRIPT_COMMIT='973cb894b9909992ad8f1782f6088fe227064aae'
+SCRIPT_VERSION='v2.8.4'
+SCRIPT_COMMIT='3200842b1b1bdb7c737f83c3f59e305d4c0eea5f'
 
 # State of the stop handling (see catch_stops): CLEAN is set by every
 # deliberate stop, CURRENT_STEP is the step being done.
@@ -3685,7 +3685,6 @@ check_actions() {
 # self-check, saving, sending and proposing the change".
 
 SETUP_BRANCH=bootstrap-setup
-TEMPLATE_URL=https://github.com/factoincognito/ai-project-template-v2
 PACKS="node web python react-native"
 
 # clone_project: spec step 4. gh repo clone gives no HTTP status, so a
@@ -3795,7 +3794,7 @@ lay_out_pack() {
 }
 
 # The heading of the README section the setup removes: the whole line.
-SETUP_HEADING="## After bootstrapping (delete this section when done)"
+SETUP_HEADING="## Finishing the setup"
 
 # remove_setup_section <README.md>: deletes the section from its
 # heading line (SETUP_HEADING, the whole line and nothing else) up to the
@@ -3812,21 +3811,26 @@ remove_setup_section() {
   rm -f "$tmp"
 }
 
-# replace_text <file> <text> <new text>: replaces every <text> in the file
-# with <new text>, literally (awk index(), values passed through ENVIRON:
-# never read as a pattern, and no sed -i, which differs on macOS).
-replace_text() {
+# remove_pack_section <file> <pack>: deletes the section of that pack
+# from a doc: from its heading, a "### " line that ends with
+# "(`<pack>` pack)", up to the next line that starts with "### " or "## "
+# outside a code block (``` lines), or the end of the file. Empty lines
+# are written only before a line that stays, so none is left at the end.
+# Returns 1, changing nothing, when there is none.
+remove_pack_section() {
   local tmp
   tmp="$(make_temp)"
-  RT_FROM="$2" RT_TO="$3" awk_run 'BEGIN { from = ENVIRON["RT_FROM"]; to = ENVIRON["RT_TO"] }
-    {
-      out = ""; line = $0
-      while ((i = index(line, from)) > 0) {
-        out = out substr(line, 1, i - 1) to
-        line = substr(line, i + length(from))
-      }
-      print out line
-    }' <"$1" >"$tmp"
+  if ! HEAD_END="(\`$2\` pack)" awk_run '
+    /^ *```/ { fence = !fence }
+    !fence && skip && (/^### / || /^## /) { skip = 0 }
+    !fence && /^### / && substr($0, length($0) - length(ENVIRON["HEAD_END"]) + 1) == ENVIRON["HEAD_END"] { skip = 1; found = 1 }
+    skip { next }
+    /^$/ { blanks++; next }
+    { while (blanks > 0) { print ""; blanks-- } print }
+    END { exit !found }' <"$1" >"$tmp"; then
+    rm -f "$tmp"
+    return 1
+  fi
   cat "$tmp" >"$1"
   rm -f "$tmp"
 }
@@ -3871,9 +3875,9 @@ check_copy_fits() {
 
 # tidy_up: spec step 9. The README's setup section goes; languages/ keeps
 # only the chosen pack's files that were not laid out (LP_KEPT); the
-# links in docs/DEV_INFRASTRUCTURE.md to the other packs' code-standards.md
-# point to the template on GitHub; the script's own copy goes; licenses/
-# and everything else stay.
+# sections of docs/DEV_INFRASTRUCTURE.md for the other packs go; the
+# script's own copy and the bootstrapper's own README (.github/README.md)
+# go; licenses/ and everything else stay.
 tidy_up() {
   local keep f p
   step_start "Removing what only the setup needed from the copy"
@@ -3891,11 +3895,10 @@ tidy_up() {
   rmdir "$keep"
   for p in $PACKS; do
     [ "$p" != "$IN_PACK" ] || continue
-    replace_text "$IN_DIR/docs/DEV_INFRASTRUCTURE.md" "\`languages/$p/code-standards.md\`" \
-      "$TEMPLATE_URL/blob/main/languages/$p/code-standards.md"
+    remove_pack_section "$IN_DIR/docs/DEV_INFRASTRUCTURE.md" "$p" || true
   done
-  rm -f "$IN_DIR/bootstrap-project.sh"
-  step_end "The setup section of README.md, the other language packs and the setup script itself are gone from the copy."
+  rm -f "$IN_DIR/bootstrap-project.sh" "$IN_DIR/.github/README.md"
+  step_end "The setup section of README.md, the bootstrapper's own README (.github/README.md), the other language packs and the setup script itself are gone from the copy."
 }
 
 # ---------- filling in the placeholders ----------
@@ -3904,7 +3907,7 @@ tidy_up() {
 # it becomes). The self-check before the commit (step 12) can reuse
 # fill_rows and fill_text. The fill runs after the tidy-up (step 9): the
 # result is the same, and the README's setup section is then removed
-# before a description that starts with "## After bootstrapping" could
+# before a description that starts with "## Finishing the setup" could
 # be taken for it.
 
 FILL_DATE=""
@@ -4349,14 +4352,16 @@ check_texts_left() {
 }
 
 # expected_change <git status code> <path>: true when the setup changes
-# that path that way: it deletes the script and the languages/ files it
-# does not keep, changes the bootstrapper's files it fills in or edits,
-# and adds the pack's files, the lockfile and the licence files.
+# that path that way: it deletes the script, the bootstrapper's own
+# README (.github/README.md) and the languages/ files it does not keep,
+# changes the bootstrapper's files it fills in or edits, and adds the
+# pack's files, the lockfile and the licence files.
 expected_change() {
   local code="$1" path="$2" f t
   case "$code" in
     "D ")
       [ "$path" != bootstrap-project.sh ] || return 0
+      [ "$path" != .github/README.md ] || return 0
       case "$path" in
         languages/*)
           for f in $LP_KEPT; do [ "$path" != "languages/$IN_PACK/$f" ] || return 1; done
@@ -4645,7 +4650,7 @@ pr_body() {
   case "$IN_PACK" in
     node | web | react-native) PR_BODY="$PR_BODY- package-lock.json: the exact version of every tool the project uses.$NL" ;;
   esac
-  PR_BODY="$PR_BODY- Removed: the setup section of README.md, the other language packs and the setup script itself.$NL$NL"
+  PR_BODY="$PR_BODY- Removed: the setup section of README.md, the bootstrapper's own README (.github/README.md), the other language packs and the setup script itself.$NL$NL"
   PR_BODY="${PR_BODY}Once the project's checks on GitHub pass, this change is added to the main version."
 }
 
@@ -5231,7 +5236,7 @@ refuse_project() {
   CREATED_NOTE=""
   guide_begin "$1" "$2"
   guide_step "Set up a new project instead, with a name that is not taken: run the command shown below with the name after --name changed, such as --name $IN_NAME-2. The script never changes or deletes the project that is there."
-  guide_step "Or, to finish this project yourself, open https://github.com/$IN_OWNER/$IN_NAME in your browser and do the steps that are still open; the README of the bootstrapper lists them."
+  guide_step "Or, to finish this project yourself, open https://github.com/$IN_OWNER/$IN_NAME in your browser and do the steps that are still open; the project's docs/DEV_INFRASTRUCTURE.md says how to protect its main version by hand."
   guide_end "the script says \"Done.\" after the last step and shows the report." \
     "if you do not want the project that is there, rename or delete it on GitHub yourself (in its Settings); the script does not delete a project." \
     "${3:-it reads the file CHANGELOG.md of the project on GitHub, which says which version of the bootstrapper made the project.}"

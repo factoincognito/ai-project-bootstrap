@@ -7,15 +7,15 @@ what gets built, Clead (Claude, Tech Owner) owns how, and Crog (Claude
 Code, Senior Developer) implements. Everything the agents need lives in
 this repo: `CLAUDE.md` is the entry point.
 
-## After bootstrapping (delete this section when done)
+## Finishing the setup
 
-If you see this, setup has not run. To run it, open Git Bash (Windows) or a terminal (macOS, Linux) and run the command below, with OWNER and NAME taken from this project's web address, https://github.com/OWNER/NAME:
+If you see this, the setup of this project has not finished. Until it has, this project's GitHub page shows the bootstrapper's README (the file `.github/README.md`): do its step 0 to install gh and sign in, then run the command below in Git Bash (Windows) or a terminal (macOS, Linux), with OWNER and NAME taken from this project's web address, https://github.com/OWNER/NAME:
 
 ```
 gh api repos/factoincognito/ai-project-bootstrap/contents/bootstrap-project.sh -H "Accept: application/vnd.github.raw+json" > bootstrap-project.sh && bash bootstrap-project.sh --resume --owner OWNER --name NAME
 ```
 
-It needs gh installed and signed in first (step 0 in the README of https://github.com/factoincognito/ai-project-template-v2); it then finishes the setup and removes this section.
+The setup then finishes, and removes this section and `.github/README.md`.
 
 ## Setup
 
@@ -44,6 +44,60 @@ In the Claude app, start a new chat inside the project's Claude Project
 (it already has the repo). Clead follows the session startup steps in
 `CLAUDE.md`. The first thing you say is the first thing
 that matters.
+
+### Working from another computer
+You can work on this project from more than one computer, for example
+a computer at home and a laptop for travel. Another computer does not
+add capacity or let work run in parallel: it is the same work, done
+from another place. The project itself is kept on GitHub, so nothing
+has to be moved from one computer to the other.
+
+If you work only in the Claude app, step 4 is all you need on the other
+computer. Steps 1 to 3 give you a copy of the project to work on in VS
+Code with Claude Code.
+
+On the other computer, once:
+
+1. Install gh and sign in to GitHub: step 0 under "Start here" in the
+   bootstrapper's README, https://github.com/factoincognito/ai-project-bootstrap.
+   Do not do its step 1: step 1 creates a new project.
+2. In the same window, go to the folder that should hold the copy of
+   this project. This line makes one named projects in your home folder
+   and goes there:
+
+   ```
+   mkdir -p ~/projects && cd ~/projects
+   ```
+
+   Then get a copy of this project, with OWNER and NAME taken from this
+   project's web address, https://github.com/OWNER/NAME:
+
+   ```
+   gh repo clone OWNER/NAME
+   ```
+
+   The copy is in a new folder named NAME.
+3. Tell git your name and email address for this copy, with your own
+   name and email address in place of Your Name and you@example.com:
+   the same ones you gave the setup on your first computer. Git records
+   them with each change, and anyone who can see the project can see
+   them. If you do not remember them, run `git config user.email` (and
+   `git config user.name`) in the copy on your first computer.
+
+   ```
+   cd NAME
+   git config user.name "Your Name"
+   git config user.email "you@example.com"
+   ```
+
+   To work on the copy in VS Code, this computer also needs what the
+   project's kind of code runs on, and its first-time setup:
+   `docs/DEV_INFRASTRUCTURE.md`, "New machine setup", steps 2 and 4.
+
+4. In the Claude app, sign in with the same Claude account and open
+   this project's Claude Project, as on your first computer. The Claude
+   app needs nothing else on this computer; the copy is for working in
+   VS Code with Claude Code.
 
 ## The team
 
