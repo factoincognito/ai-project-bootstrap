@@ -43,7 +43,7 @@ the code).
 
 To set up the project (step 0 below installs the tools):
 
-- **A computer** with Windows, macOS or Linux.
+- **A computer** with Windows or Linux. macOS is not supported for now: the setup stops on a Mac.
 - **A GitHub account.** Free. Make one at https://github.com/signup.
   Anyone can see the files of a public project; only you, and the
   people you invite, can see a private one. On a free account, a public
@@ -54,7 +54,7 @@ To set up the project (step 0 below installs the tools):
 - **On Windows: Git for Windows.** Free. It gives you Git, which keeps
   track of every change to the project's files, and Git Bash, the
   window where you type the commands from this page.
-- **On macOS and Linux: Git.** Free, and often there already. If it is
+- **On Linux: Git.** Free, and often there already. If it is
   missing, the script says so and shows how to install it.
 - **gh, GitHub's tool for the command line.** Free. The script uses it
   to create the project on GitHub for you, signed in as you.
@@ -103,9 +103,7 @@ Ctrl-Q (hold Ctrl and press Q).
      opens with a line that ends in `$`; you type every command below
      in that window. If Git Bash was already open, close it and open it
      again, so it finds `gh`.
-   - **macOS:** open the Terminal app. If you have Homebrew, run
-     `brew install gh`; otherwise open https://cli.github.com, click
-     Download for Mac, open the downloaded file and follow the installer.
+   - **macOS:** not supported for now: the setup stops on a Mac. Use a computer with Windows or Linux.
    - **Linux:** open a terminal and follow the steps for your system at
      https://github.com/cli/cli/blob/trunk/docs/install_linux.md.
    - **Linux on Windows (WSL):** to work in Linux on a Windows computer,
@@ -222,7 +220,8 @@ same `cd`: the one you ran, with every answer in it.
 - After the script: in the Claude app, create a Claude Project for the
   new GitHub project, add the GitHub project to that Claude Project, and
   start a chat inside the Claude Project; the project's instructions for
-  Claude (the file `CLAUDE.md`) do the rest. A Claude Project is a
+  Claude (the file `CLAUDE.md`, which points to the Rules in `rules/` and
+  the project's own rules in `RULES.md`) do the rest. A Claude Project is a
   workspace in the Claude app that keeps the chats and files of one
   project together. Claude's help pages say how:
   - To create a Claude Project: "How can I create and manage projects?",
@@ -290,8 +289,7 @@ here first:
 - Before anything is created, the script stops and you start it again
   with the command it prints, because it cannot check again in the same
   run:
-  - a bash that is too old (Windows: install the current Git for
-    Windows; macOS: use /bin/bash);
+  - a bash that is too old (Windows: install the current Git for Windows);
   - an older version of the script (it shows the command to download
     the current one);
   - gh signs in with a key (a token) set in GH_TOKEN or GITHUB_TOKEN
