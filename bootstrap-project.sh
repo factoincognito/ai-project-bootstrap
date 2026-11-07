@@ -80,8 +80,8 @@ set -euo pipefail
 # and these hold the placeholders. These two lines are the only place a
 # placeholder may appear: the build refuses any left in its output, so
 # code compares against these variables, never a literal placeholder.
-SCRIPT_VERSION='v2.9.0'
-SCRIPT_COMMIT='f1ce247a0d7482de6a1a799f877168091986f4c3'
+SCRIPT_VERSION='v2.9.1'
+SCRIPT_COMMIT='d17b8c1d4eefcea76eb467be07d94c325578ad6c'
 
 # State of the stop handling (see catch_stops): CLEAN is set by every
 # deliberate stop, CURRENT_STEP is the step being done.
@@ -168,7 +168,11 @@ show_version() {
 # on the same line (the stars of the wait for build), plain (r1h). The
 # next message of any helper below ends that line first (end_line).
 LINE_OPEN=""
-say_open() { printf '%s' "$*"; OUT_BLANK=""; LINE_OPEN=1; }
+say_open() {
+  printf '%s' "$*"
+  OUT_BLANK=""
+  LINE_OPEN=1
+}
 end_line() {
   [ -z "$LINE_OPEN" ] || printf '\n'
   LINE_OPEN=""
@@ -284,7 +288,10 @@ paint() {
   OUT_BLANK=""
 }
 answer_line() { paint "$ANSWER_COLOUR" "$1"; }
-read_line() { paint "$READ_COLOUR" "$1" "${2:-}"; printf '\n'; }
+read_line() {
+  paint "$READ_COLOUR" "$1" "${2:-}"
+  printf '\n'
+}
 
 # show_colour_key: one line per colour, each in its own colour and saying
 # in words what it marks, then a blank line; nothing when colour is off.
@@ -323,13 +330,30 @@ say_heading() {
 say() {
   case "$*" in
     "What to do next: "*) say_heading "$*" ;;
-    "$START_AGAIN_INTRO" | "$CONTINUE_INTRO" | "$ADVANCE_INTRO") block_start; read_line "$*" ;;
-    "$OFFER_INTRO") end_line; read_line "$*" ;;
-    "") end_line; printf '\n'; OUT_BLANK=1 ;;
-    "Warning: "*) end_line; printf '%s\n' "$*"; OUT_BLANK="" ;;
+    "$START_AGAIN_INTRO" | "$CONTINUE_INTRO" | "$ADVANCE_INTRO")
+      block_start
+      read_line "$*"
+      ;;
+    "$OFFER_INTRO")
+      end_line
+      read_line "$*"
+      ;;
+    "")
+      end_line
+      printf '\n'
+      OUT_BLANK=1
+      ;;
+    "Warning: "*)
+      end_line
+      printf '%s\n' "$*"
+      OUT_BLANK=""
+      ;;
     *)
       end_line
-      if [ -n "$IN_LOG" ]; then paint "$LOG_COLOUR" "$*"; printf '\n'; else printf '%s\n' "$*"; fi
+      if [ -n "$IN_LOG" ]; then
+        paint "$LOG_COLOUR" "$*"
+        printf '\n'
+      else printf '%s\n' "$*"; fi
       OUT_BLANK=""
       ;;
   esac
@@ -339,16 +363,28 @@ say() {
 # link to open, an option, a permission to set, what to do after a no):
 # in the read colour, never dim like the progress log around it (#237
 # review, N2; r1g). The lines after it are log again.
-say_note() { end_line; read_line "$*"; }
+say_note() {
+  end_line
+  read_line "$*"
+}
 
 # say_log <text>: one line of the progress log, dim, also where a block
 # the user reads has ended the step's log (what the script did after an
 # answer at the terminal, r1g).
-say_log() { log_resumes; end_line; paint "$LOG_COLOUR" "$*"; printf '\n'; }
+say_log() {
+  log_resumes
+  end_line
+  paint "$LOG_COLOUR" "$*"
+  printf '\n'
+}
 
 # say_sign <text>: a line of the signs of life of the wait for build,
 # plain, never dim (r1h: dim, they were hard to see).
-say_sign() { end_line; printf '%s\n' "$*"; OUT_BLANK=""; }
+say_sign() {
+  end_line
+  printf '%s\n' "$*"
+  OUT_BLANK=""
+}
 
 # say_command <command> [err]: a command for the user to copy, indented,
 # with only the command in the command colour, not the indent (err: on
@@ -356,7 +392,11 @@ say_sign() { end_line; printf '%s\n' "$*"; OUT_BLANK=""; }
 say_command() {
   end_line
   if [ "${2:-}" = err ]; then
-    { printf '    '; paint "$COMMAND_COLOUR" "$1" err; printf '\n'; } >&2
+    {
+      printf '    '
+      paint "$COMMAND_COLOUR" "$1" err
+      printf '\n'
+    } >&2
   else
     printf '    '
     paint "$COMMAND_COLOUR" "$1"
@@ -895,8 +935,10 @@ add_missing_lines() {
   local tmp from to
   tmp="$(make_temp)"
   [ -f "$2" ] || : >"$2"
-  as_operand "$1"; from="$OPERAND"
-  as_operand "$2"; to="$OPERAND"
+  as_operand "$1"
+  from="$OPERAND"
+  as_operand "$2"
+  to="$OPERAND"
   awk_run 'FILENAME == ARGV[1] { print; sub(/\r$/, ""); have[$0] = 1; next }
     { sub(/\r$/, "") }
     $0 != "" && !($0 in have) { have[$0] = 1; print }' "$to" "$from" >"$tmp"
@@ -959,7 +1001,11 @@ parse_args() {
     val=""
     has_val=""
     case "$arg" in
-      --*=*) val="${arg#*=}"; arg="${arg%%=*}"; has_val=1 ;;
+      --*=*)
+        val="${arg#*=}"
+        arg="${arg%%=*}"
+        has_val=1
+        ;;
     esac
     case "$arg" in
       --name | --owner | --project-name | --description | --po-name | --pack | --license | \
@@ -991,16 +1037,31 @@ parse_args() {
         [ -z "$has_val" ] || fail 2 "The option $arg does not take a value." \
           "Remove the = and what follows it, and run the script again. $OPTIONS_NEXT"
         case "$arg" in
-          --with-deploy) SEEN_WITH_DEPLOY=1; IN_WITH_DEPLOY=yes ;;
-          --without-deploy) SEEN_WITHOUT_DEPLOY=1; IN_WITH_DEPLOY=no ;;
-          --public) SEEN_PUBLIC=1; IN_VISIBILITY=public ;;
-          --private) SEEN_PRIVATE=1; IN_VISIBILITY=private ;;
+          --with-deploy)
+            SEEN_WITH_DEPLOY=1
+            IN_WITH_DEPLOY=yes
+            ;;
+          --without-deploy)
+            SEEN_WITHOUT_DEPLOY=1
+            IN_WITH_DEPLOY=no
+            ;;
+          --public)
+            SEEN_PUBLIC=1
+            IN_VISIBILITY=public
+            ;;
+          --private)
+            SEEN_PRIVATE=1
+            IN_VISIBILITY=private
+            ;;
           --non-interactive) OPT_NON_INTERACTIVE=1 ;;
           --yes) OPT_YES=1 ;;
           --dry-run) OPT_DRY_RUN=1 ;;
           --resume) OPT_RESUME=1 ;;
           --allow-unprotected) OPT_ALLOW_UNPROTECTED=1 ;;
-          --help) show_help; exit 0 ;;
+          --help)
+            show_help
+            exit 0
+            ;;
         esac
         ;;
       --again)
@@ -1037,12 +1098,15 @@ parse_args() {
 check_text() {
   trim_into "$1"
   case "$TRIMMED" in
-    "") PROBLEM="It cannot be empty."; return 1 ;;
+    "")
+      PROBLEM="It cannot be empty."
+      return 1
+      ;;
     *[[:cntrl:]]*)
       PROBLEM="It must be one line, with no tabs or other invisible characters."
       return 1
       ;;
-    *'"'* | *'\'* | *'<'* | *'>'* | *'&'* | *'`'*)
+    *'"'* | *\\* | *'<'* | *'>'* | *'&'* | *'`'*)
       PROBLEM='It cannot contain any of these characters: " \ < > & or a backtick (`).'
       return 1
       ;;
@@ -1055,7 +1119,10 @@ check_text() {
 check_table_text() {
   check_text "$1" || return 1
   case "$CHECKED" in
-    *'|'*) PROBLEM="It cannot contain a | (a vertical bar), because it goes into a table."; return 1 ;;
+    *'|'*)
+      PROBLEM="It cannot contain a | (a vertical bar), because it goes into a table."
+      return 1
+      ;;
   esac
 }
 
@@ -1063,7 +1130,10 @@ check_name() {
   local slug
   trim_into "$1"
   case "$TRIMMED" in
-    "") PROBLEM="It cannot be empty."; return 1 ;;
+    "")
+      PROBLEM="It cannot be empty."
+      return 1
+      ;;
     [!$ALNUM]* | *[!$ALNUM._-]*)
       PROBLEM="Use only letters, digits, dots (.), dashes (-) and underscores (_), with no spaces, and start with a letter or a digit."
       return 1
@@ -1090,7 +1160,10 @@ check_name() {
 check_owner() {
   trim_into "$1"
   case "$TRIMMED" in
-    "") PROBLEM="It cannot be empty."; return 1 ;;
+    "")
+      PROBLEM="It cannot be empty."
+      return 1
+      ;;
     [!$ALNUM]* | *[!${ALNUM}_-]*)
       PROBLEM="Use the name of a GitHub account or organisation: letters, digits, dashes (-) and underscores (_), starting with a letter or a digit."
       return 1
@@ -1128,7 +1201,10 @@ check_license() {
 check_ci_timeout() {
   trim_into "$1"
   case "$TRIMMED" in
-    "" | *[!0123456789]*) PROBLEM="Use a whole number of minutes, from 1 to 9999."; return 1 ;;
+    "" | *[!0123456789]*)
+      PROBLEM="Use a whole number of minutes, from 1 to 9999."
+      return 1
+      ;;
   esac
   CHECKED="${TRIMMED#"${TRIMMED%%[!0]*}"}"
   if [ -z "$CHECKED" ] || [ "${#CHECKED}" -gt 4 ]; then
@@ -1142,11 +1218,21 @@ check_ci_timeout() {
 # the shell). Another account's ~name is refused.
 check_dir() {
   trim_into "$1"
+  # shellcheck disable=SC2088 # a typed ~ is matched as text here and expanded below
   case "$TRIMMED" in
-    "") PROBLEM="It cannot be empty."; return 1 ;;
-    *[[:cntrl:]]*) PROBLEM="It must be one line, with no tabs or other invisible characters."; return 1 ;;
+    "")
+      PROBLEM="It cannot be empty."
+      return 1
+      ;;
+    *[[:cntrl:]]*)
+      PROBLEM="It must be one line, with no tabs or other invisible characters."
+      return 1
+      ;;
     "~" | "~/"*)
-      [ -n "${HOME:-}" ] || { PROBLEM="Your home folder is not known here, so ~ cannot be used: write the folder's full path."; return 1; }
+      [ -n "${HOME:-}" ] || {
+        PROBLEM="Your home folder is not known here, so ~ cannot be used: write the folder's full path."
+        return 1
+      }
       CHECKED="$HOME${TRIMMED#"~"}"
       return 0
       ;;
@@ -1170,8 +1256,14 @@ check_dir() {
 check_email() {
   check_text "$1" || return 1
   case "$CHECKED" in
-    *[[:space:]]*) PROBLEM="Use an email address with no spaces, as in ada@example.com."; return 1 ;;
-    *@*@* | @* | *@) PROBLEM="Use an email address with one @ and text on both sides, as in ada@example.com."; return 1 ;;
+    *[[:space:]]*)
+      PROBLEM="Use an email address with no spaces, as in ada@example.com."
+      return 1
+      ;;
+    *@*@* | @* | *@)
+      PROBLEM="Use an email address with one @ and text on both sides, as in ada@example.com."
+      return 1
+      ;;
     *@*) return 0 ;;
   esac
   PROBLEM="Use an email address with one @ and text on both sides, as in ada@example.com."
@@ -1198,7 +1290,10 @@ check_license_answer() {
     5) set -- bsd-3-clause ;;
     6) set -- polyform-noncommercial-1.0.0 ;;
     *[!0123456789]*) ;;
-    *) PROBLEM="Choose a number from 1 to 6, or type the licence's name."; return 1 ;;
+    *)
+      PROBLEM="Choose a number from 1 to 6, or type the licence's name."
+      return 1
+      ;;
   esac
   check_license "$1"
 }
@@ -1208,7 +1303,10 @@ check_visibility_answer() {
   case "$CHECKED" in
     1 | public) CHECKED=public ;;
     2 | private) CHECKED=private ;;
-    *) PROBLEM="Choose public or private."; return 1 ;;
+    *)
+      PROBLEM="Choose public or private."
+      return 1
+      ;;
   esac
 }
 
@@ -1217,7 +1315,10 @@ check_yes_no() {
   case "$CHECKED" in
     y | yes) CHECKED=yes ;;
     n | no) CHECKED=no ;;
-    *) PROBLEM="Answer yes or no."; return 1 ;;
+    *)
+      PROBLEM="Answer yes or no."
+      return 1
+      ;;
   esac
 }
 
@@ -1335,10 +1436,10 @@ check_options() {
     # first, and a missing name or email is reported after it.
     if check_git; then
       read_git_identity
-      [ -n "$IN_GIT_NAME" ] || [ -n "$GIT_CFG_NAME" ] \
-        || add_problem --git-name "It is missing, and git on this computer has no name set, so it must be given."
-      [ -n "$IN_GIT_EMAIL" ] || [ -n "$GIT_CFG_EMAIL" ] \
-        || add_problem --git-email "It is missing, and git on this computer has no email address set, so it must be given."
+      [ -n "$IN_GIT_NAME" ] || [ -n "$GIT_CFG_NAME" ] ||
+        add_problem --git-name "It is missing, and git on this computer has no name set, so it must be given."
+      [ -n "$IN_GIT_EMAIL" ] || [ -n "$GIT_CFG_EMAIL" ] ||
+        add_problem --git-email "It is missing, and git on this computer has no email address set, so it must be given."
     fi
   fi
   stop_if_problems
@@ -1505,7 +1606,6 @@ check_deploy_pack() {
     esac
   fi
 }
-
 
 # ---------- preflight: checks on this computer ----------
 # Before anything is created the script checks this computer (spec:
@@ -1703,6 +1803,7 @@ start_cd() {
     SHOWN_CD="~"
   elif [ -n "$home" ] && [ "${START_DIR#"$home"/}" != "$START_DIR" ]; then
     quote_word "${START_DIR#"$home"/}"
+    # shellcheck disable=SC2088 # shown for the person to type; their shell expands it
     SHOWN_CD="~/$QUOTED"
   else
     quote_word "$START_DIR"
@@ -2144,7 +2245,13 @@ gh_install_steps() {
     macos)
       if command -v brew >/dev/null 2>&1; then
         guide_step "Run this command; it uses Homebrew, the installer already on this Mac:"
-        if [ "$1" = upgrade ]; then offered brew-gh-upgrade show; OFFER=brew-gh-upgrade; else offered brew-gh show; OFFER=brew-gh; fi
+        if [ "$1" = upgrade ]; then
+          offered brew-gh-upgrade show
+          OFFER=brew-gh-upgrade
+        else
+          offered brew-gh show
+          OFFER=brew-gh
+        fi
       else
         guide_step "Open https://cli.github.com in your browser, click Download for Mac, open the downloaded file and follow the installer."
       fi
@@ -2153,7 +2260,13 @@ gh_install_steps() {
     windows)
       if command -v winget >/dev/null 2>&1; then
         guide_step "Run this command; it uses winget, the installer that comes with Windows:"
-        if [ "$1" = upgrade ]; then offered winget-gh-upgrade show; OFFER=winget-gh-upgrade; else offered winget-gh show; OFFER=winget-gh; fi
+        if [ "$1" = upgrade ]; then
+          offered winget-gh-upgrade show
+          OFFER=winget-gh-upgrade
+        else
+          offered winget-gh show
+          OFFER=winget-gh
+        fi
       else
         # The page's Windows options read "Windows - WinGet" and "Windows -
         # Download MSI" (end-to-end run 3, r3b; there is no "Download for
@@ -2358,7 +2471,7 @@ check_target_dir() {
       DIR_DONE="The folder is a copy of the project $IN_OWNER/$IN_NAME, which --resume continues."
     fi
   elif [ -e "$IN_DIR" ] || [ -L "$IN_DIR" ]; then
-    DIR_PROBLEM=file
+    DIR_PROBLEM="file"
     return 1
   fi
   parent="$(dirname -- "$IN_DIR")"
@@ -2605,7 +2718,7 @@ api_call() {
   esac
   case "$API_BODY" in
     *"${DQ}message${DQ}"*)
-      API_MESSAGE="${API_BODY#*${DQ}message${DQ}}"
+      API_MESSAGE="${API_BODY#*"${DQ}"message"${DQ}"}"
       API_MESSAGE="${API_MESSAGE#*:}"
       trim_into "$API_MESSAGE"
       API_MESSAGE="${TRIMMED#"$DQ"}"
@@ -2738,7 +2851,10 @@ check_github_account() {
 guide_github_account() {
   case "$ACCOUNT_PROBLEM" in
     other) api_fail "read your GitHub account" ;;
-    offline) guide_github_offline; return 0 ;;
+    offline)
+      guide_github_offline
+      return 0
+      ;;
     expired)
       guide_begin "GitHub no longer accepts the sign-in that gh (the GitHub command-line tool) has on this computer." \
         "The script works on GitHub as you, through gh, and GitHub no longer accepts that sign-in: it may have run out or been withdrawn."
@@ -2937,9 +3053,18 @@ guide_github_permissions() {
   fi
   guide_step "Run this command; it asks GitHub to give gh the missing permissions:"
   case "$PERM_MISSING" in
-    workflow) offered gh-refresh-workflow show; OFFER=gh-refresh-workflow ;;
-    public_repo*) offered gh-refresh-public show; OFFER=gh-refresh-public ;;
-    *) offered gh-refresh-repo show; OFFER=gh-refresh-repo ;;
+    workflow)
+      offered gh-refresh-workflow show
+      OFFER=gh-refresh-workflow
+      ;;
+    public_repo*)
+      offered gh-refresh-public show
+      OFFER=gh-refresh-public
+      ;;
+    *)
+      offered gh-refresh-repo show
+      OFFER=gh-refresh-repo
+      ;;
   esac
   guide_step "$GH_GIT_QUESTION_STEP"
   guide_step "gh shows a one-time code (eight letters and digits, such as ABCD-1234) and asks you to press Enter: copy the code, then press Enter."
@@ -3143,21 +3268,27 @@ plan_steps() {
   esac
   # shellcheck disable=SC2086 # the marks are split into the six words on purpose
   set -- $marks
-  step_mark "$1"; m1="$STEP_MARK"
-  step_mark "$2"; m2="$STEP_MARK"
+  step_mark "$1"
+  m1="$STEP_MARK"
+  step_mark "$2"
+  m2="$STEP_MARK"
   # Past the protection with --allow-unprotected, the run that stopped may
   # have gone on without it.
-  if [ "$2" = done ] && [ -n "$OPT_ALLOW_UNPROTECTED" ]; then m2=" (done, or skipped with --allow-unprotected)"; fi
-  step_mark "$3"; m3="$STEP_MARK"
-  step_mark "$4"; m4="$STEP_MARK"
-  step_mark "$5"; m5="$STEP_MARK"
-  step_mark "$6"; m6="$STEP_MARK"
+  if [ "$2" = "done" ] && [ -n "$OPT_ALLOW_UNPROTECTED" ]; then m2=" (done, or skipped with --allow-unprotected)"; fi
+  step_mark "$3"
+  m3="$STEP_MARK"
+  step_mark "$4"
+  m4="$STEP_MARK"
+  step_mark "$5"
+  m5="$STEP_MARK"
+  step_mark "$6"
+  m6="$STEP_MARK"
   # show_plan gives a new setup's heading itself.
   [ -z "$state" ] || say_heading "The steps, in this order: (done) marks a step that is done already, and (next) the step the setup continues with."
   say "  1. Create the project on GitHub, with the bootstrapper's files in it.$m1"
   say "  2. Protect its main version, so that from then on every change comes as a proposed change, not straight into it.$m2"
   say "  3. Make a copy of the project on this computer, in $IN_DIR.$m3"
-  if [ "$4" = done ]; then
+  if [ "$4" = "done" ]; then
     # Done in the run that stopped, with the licence chosen then, which
     # this run's answer need not be.
     say "  4. Add the language pack's files, fill in the project's names and description, and add the licence that was chosen, if one was.$m4"
@@ -3453,8 +3584,14 @@ private_on_github() {
     if [ "$API_RC" -eq 0 ] && [ "$API_STATUS" = 200 ]; then
       trim_into "$API_BODY"
       case "$TRIMMED" in
-        true) IN_VISIBILITY=private; VISIBILITY_FROM_GITHUB=1 ;;
-        false) IN_VISIBILITY=public; VISIBILITY_FROM_GITHUB=1 ;;
+        true)
+          IN_VISIBILITY=private
+          VISIBILITY_FROM_GITHUB=1
+          ;;
+        false)
+          IN_VISIBILITY=public
+          VISIBILITY_FROM_GITHUB=1
+          ;;
       esac
     fi
     API_RC="$rc" API_STATUS="$status" API_HEADERS="$headers" API_BODY="$body" API_MESSAGE="$message" API_ERR="$err"
@@ -3635,7 +3772,10 @@ check_actions_on() {
       trim_into "$API_BODY"
       case "$TRIMMED" in
         true) return 0 ;;
-        false) ACTIONS_PROBLEM=off; return 1 ;;
+        false)
+          ACTIONS_PROBLEM=off
+          return 1
+          ;;
       esac
       ACTIONS_UNCHECKED="HTTP 200: enabled is ${TRIMMED:-empty}"
       return 0
@@ -4350,7 +4490,10 @@ fill_texts_left() {
   while read -r file key; do
     fill_text "$key"
     t="$FILL_TEXT"
-    s="$(cat "$IN_DIR/$file"; printf x)"
+    s="$(
+      cat "$IN_DIR/$file"
+      printf x # not-user-facing
+    )"
     s="${s%x}"
     keys="$(while read -r f k; do [ "$f" != "$file" ] || printf '%s ' "$k"; done <<<"$rows")"
     for k in $keys; do
@@ -4540,6 +4683,7 @@ self_check() {
 git_ident_form() {
   local s="$1" crud=",:;$SQ"
   while :; do
+    # shellcheck disable=SC2101 # [[:space:]$crud] is one bracket expression: the class and crud's characters
     case "$s" in
       [[:space:]$crud]*) s="${s#?}" ;;
       *[[:space:]$crud]) s="${s%?}" ;;
@@ -4577,7 +4721,7 @@ check_git_identity() {
     ident="${ident% *}"
     if [ "$ident" != "$want" ]; then
       stop_with_error "git would save the setup's changes under $ident, not under the name and email you gave, $want." \
-      "A setting of this terminal overrides the copy's own git settings: GIT_AUTHOR_NAME, GIT_AUTHOR_EMAIL, GIT_COMMITTER_NAME or GIT_COMMITTER_EMAIL; so do the settings author.name, author.email, committer.name or committer.email in your global git settings. Open a new terminal window without the first, remove the others from your global git settings, or give the same name and email to the script, then continue the setup with the command shown above." \
+        "A setting of this terminal overrides the copy's own git settings: GIT_AUTHOR_NAME, GIT_AUTHOR_EMAIL, GIT_COMMITTER_NAME or GIT_COMMITTER_EMAIL; so do the settings author.name, author.email, committer.name or committer.email in your global git settings. Open a new terminal window without the first, remove the others from your global git settings, or give the same name and email to the script, then continue the setup with the command shown above." \
         "git var GIT_${which}_IDENT: $ident"
     fi
   done
@@ -4806,7 +4950,10 @@ look_at_build() {
   for b in $runs; do
     case "$b" in
       pass) ;;
-      pending) BUILD_STATE=pending; return 0 ;;
+      pending)
+        BUILD_STATE=pending
+        return 0
+        ;;
       *) BUILD_STATE=fail ;;
     esac
   done
@@ -4916,7 +5063,11 @@ read_back_protection() {
     found=""
     got=""
     while IFS= read -r line; do
-      case "$line" in "$field="*) found=1; got="${line#*=}" ;; esac
+      case "$line" in "$field="*)
+        found=1
+        got="${line#*=}"
+        ;;
+      esac
     done <<<"$READ_BACK"
     if [ -z "$found" ]; then
       if [ -n "$CHANGE_ADDED" ]; then diffs="$diffs$field: expected $want, GitHub reports nothing$NL"; else diffs="$diffs$field: the script set $want, GitHub reports nothing$NL"; fi
@@ -4977,7 +5128,10 @@ ensure_decision_in_change() {
   [ -n "$UNPROTECTED" ] || return 0
   text="$(git -C "$IN_DIR" show "refs/heads/$SETUP_BRANCH:memory/decisions.md" 2>/dev/null)" || text=""
   case "$text" in
-    *"$UNPROTECTED_ROW_KEY"*) DECISION_NOTED=1; return 0 ;;
+    *"$UNPROTECTED_ROW_KEY"*)
+      DECISION_NOTED=1
+      return 0
+      ;;
   esac
   OPT_ALLOW_UNPROTECTED=""
   stop_with_error "The setup's change, proposed at $PR_URL, does not say in memory/decisions.md that the main version is not protected, and the script does not add a change to a main version without protection unless it says so. The proposed change stays open on GitHub." \
@@ -5085,9 +5239,15 @@ finish_copy() {
 
 # say_what_next: the one next step and then, as the very last line the
 # script prints, where to go when stuck (end-to-end run 1, finding 10).
-# One text for every ending of report, so the endings cannot drift.
+# Between them, how to start that chat and its first message, the start
+# line of the Rules' P-1 § 2 (5) with this project filled in, indented as
+# text to copy (p2.9.0-b and -c, newcomer pre-check on v2.9.0). One text
+# for every ending of report, so the endings cannot drift.
 say_what_next() {
-  say "What to do next: in the Claude app, create a Claude Project for this project (how: https://support.claude.com/en/articles/9519177-how-can-i-create-and-manage-projects), add the project on GitHub, https://github.com/$IN_OWNER/$IN_NAME, to that Claude Project (how: https://support.claude.com/en/articles/10167454-using-the-github-integration), and start a chat inside the Claude Project. The file CLAUDE.md in the project tells Claude the rest."
+  say "What to do next: in the Claude app, create a Claude Project for this project (how: https://support.claude.com/en/articles/9519177-how-can-i-create-and-manage-projects), add the project on GitHub, https://github.com/$IN_OWNER/$IN_NAME, to that Claude Project, choosing all files (how: https://support.claude.com/en/articles/10167454-using-the-github-integration), and start a chat inside the Claude Project. The file CLAUDE.md in the project tells Claude the rest."
+  say_note "To start that chat on a computer: click Projects in the menu on the left, choose the project, and type the first message in its input field. In the Claude app on an Android phone, open the menu at the top left, tap the projects entry, choose the project, tap the new-session button at the bottom right, and type the first message in the input field."
+  say_note "As the first message, copy this line into the input field:"
+  say "    Attach $IN_OWNER/$IN_NAME with push access, read its CLAUDE.md, rules/RULES.md and RULES.md, and run the session startup."
   say "If you ever feel stuck and do not know how to go on, Clead (Claude, the project's Tech Owner) is always there to help: just ask Clead for help, a recommendation or advice in the chat."
 }
 
@@ -5216,7 +5376,6 @@ unexpected_stop() {
 PULLS_JQ='.[] | "\(.state) \(.merged_at // "-") \(.html_url)"'
 SETUP_MARK="- Set up by bootstrap-project.sh."
 RESUME_STATE=""
-GH_STAMP_BODY=""
 GH_ADDED_MARK=""
 GH_OPEN_URL=""
 GH_MERGED_URL=""
@@ -5311,8 +5470,14 @@ resume_read_github() {
   { [ "$API_RC" -eq 0 ] && [ "$API_STATUS" = 200 ]; } || api_fail "read whether the project $IN_OWNER/$IN_NAME is private"
   trim_into "$API_BODY"
   case "$TRIMMED" in
-    true) IN_VISIBILITY=private; VISIBILITY_FROM_GITHUB=1 ;;
-    false) IN_VISIBILITY=public; VISIBILITY_FROM_GITHUB=1 ;;
+    true)
+      IN_VISIBILITY=private
+      VISIBILITY_FROM_GITHUB=1
+      ;;
+    false)
+      IN_VISIBILITY=public
+      VISIBILITY_FROM_GITHUB=1
+      ;;
   esac
 
   API_KEEP_CR=1 api_call -H "Accept: application/vnd.github.raw+json" "repos/$IN_OWNER/$IN_NAME/contents/CHANGELOG.md"
@@ -5354,7 +5519,10 @@ resume_read_github() {
         line="${line#- Language pack: }"
         line="${line%.}"
         case "$line" in
-          *", with the files that publish the website") GH_DEPLOY=yes; line="${line%, with the files that publish the website}" ;;
+          *", with the files that publish the website")
+            GH_DEPLOY=yes
+            line="${line%, with the files that publish the website}"
+            ;;
         esac
         GH_PACK="$line"
         ;;
@@ -5410,7 +5578,10 @@ resume_read_github() {
   GH_BRANCH_SHA=""
   api_call "repos/$IN_OWNER/$IN_NAME/branches/$SETUP_BRANCH" --jq .commit.sha
   case "$API_STATUS" in
-    200) trim_into "$API_BODY"; GH_BRANCH_SHA="$TRIMMED" ;;
+    200)
+      trim_into "$API_BODY"
+      GH_BRANCH_SHA="$TRIMMED"
+      ;;
     404) ;;
     *) api_fail "look for the line of work $SETUP_BRANCH of the project" ;;
   esac
@@ -5763,7 +5934,10 @@ cmd_setup() {
 main() {
   START_DIR="$(pwd 2>/dev/null)" || START_DIR=""
   case "${1:-}" in
-    layout-pack) shift; cmd_layout_pack "$@" ;;
+    layout-pack)
+      shift
+      cmd_layout_pack "$@"
+      ;;
     --again)
       # The saved answers come first, the options after --again follow
       # them (r2l), so an option given again wins.
@@ -5773,7 +5947,10 @@ main() {
       set -- "${AGAIN_ARGS[@]}" "$@"
       cmd_setup "$@"
       ;;
-    *) find_again_dir; cmd_setup "$@" ;;
+    *)
+      find_again_dir
+      cmd_setup "$@"
+      ;;
   esac
 }
 
