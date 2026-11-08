@@ -33,15 +33,19 @@ P-1 § 6 Model and effort
 (4) Clead sets the model of the agents it starts; the product owner sets the model and effort of their own sessions.
 
 P-1 § 7 Delegation for the session
-(1) In its first reply, a session the product owner starts gives them, as a **Now** item of its For you block and as a code block, this line to send: "I delegate to you, for the rest of this session, every change that the project's rules allow, merges included, in this repository."
+(1) In its first reply, a session the product owner starts gives them, as a **Now** item of its For you block and as a code block, this line to send: "I delegate to you, for the rest of this session, every change that the project's rules allow, merges, scheduled-task changes, tool installs and branch deletions included, in this repository." Where the product owner's first message already holds that line, the session says instead that it was received (P-1 § 10 (2)).
 (2) The line delegates nothing these Rules do not already allow; it gives in chat the delegation that Claude's permission check has been seen to ask for.
 (3) A step that is still refused after the product owner has sent the line is handled in accordance with Process P-5, and the refusal is recorded in accordance with P-5 § 3 (2).
 
 P-1 § 8 Files in context
-(1) In its first reply, a session the product owner starts gives a numbered list of every file whose content has entered its context so far, by any route: read by the session, loaded by the harness (such as a `CLAUDE.md`), or returned by a tool. A file read only in part is marked with the part read.
+(1) In its first reply, a session the product owner starts gives a numbered list of every file whose content has entered its context so far, by any route: read by the session, loaded by the harness (such as a `CLAUDE.md`), or returned by a tool. A file read only in part is marked with the part read; where no paragraph of these Rules requires it to be read in full, the mark adds: "intentional partial read, outside the full-read rule; no violation, no action needed".
 (2) A file from GitHub, also when it was read from a local clone, is named `owner/repo/path/filename.extension`. A file from another source is named so that it is as easy as possible to identify, for example by its source and full path: `memory: <path>` or `local file: <absolute path>`.
 (3) The list comes before the delegation line of P-1 § 7.
 
 P-1 § 9 Complete reads
 (1) A file that P-1 § 1 requires a session to read is read with the file-reading tool (in Claude Code, `Read`), one file per call, not through a shell command.
 (2) A read is complete only when the tool gives no notice that it returned only part of the file and the last line number returned is not below the file's line count (`wc -l`). Where it is not complete, the session reads the rest before any other work.
+
+P-1 § 10 Startup report
+(1) In a session the product owner starts, the first reply that P-1 §§ 3 (2), 4 (5), 7 (1) and 8 (1) name is the session's first message to the product owner after the reads of P-1 § 1 and § 4. It is sent before any work on the day's task begins, also when the product owner's first message holds the start line, the delegation line and the task together. Where the task would otherwise begin in the same turn, the session sends the report with the tool that shows the product owner a message while the session goes on working (in the Claude app, `SendUserMessage`), and starts the task only after it has been sent. A session without such a tool gives the report as the first text of its turn, before any tool call for the task.
+(2) The report gives, in this order: the capabilities line of P-1 § 3 (2); the entries P-1 § 4 (5) names, or that there are none; the list of P-1 § 8 (1); the line of P-1 § 7 (1), or, where the product owner's first message already holds that line, that it was received; and, where the product owner's first message names no task, the question of P-1 § 5 (1).

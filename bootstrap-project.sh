@@ -80,8 +80,8 @@ set -euo pipefail
 # and these hold the placeholders. These two lines are the only place a
 # placeholder may appear: the build refuses any left in its output, so
 # code compares against these variables, never a literal placeholder.
-SCRIPT_VERSION='v2.9.1'
-SCRIPT_COMMIT='d17b8c1d4eefcea76eb467be07d94c325578ad6c'
+SCRIPT_VERSION='v2.9.2'
+SCRIPT_COMMIT='8d5ee3bd90cc6632a3510c497f175a748bd2790a'
 
 # State of the stop handling (see catch_stops): CLEAN is set by every
 # deliberate stop, CURRENT_STEP is the step being done.
@@ -596,23 +596,36 @@ wait_for_enter() {
 # Returns 0 for yes, 1 for any other answer, an empty one, or when there
 # is no terminal to read from. A terminal that cannot be read is a no at
 # once, with the question line ended. One that can be read but not opened
-# (/dev/tty with no terminal attached) is a no too: the redirection
-# fails, nothing in the braces runs, the question is shown with its line
-# ended, and that is not a yes. Keys typed before the question was shown
-# are discarded first (discard_typeahead, finding r1f), with the terminal
-# opened once for the discard and the read.
+# (/dev/tty with no terminal attached) is a no too: the open, tried first
+# in a subshell with its error silenced, fails, nothing in the braces
+# runs, the question is shown with its line ended, and that is not a yes.
+# Keys typed before the question was shown are discarded first
+# (discard_typeahead, finding r1f), with the terminal opened once for the
+# discard and the read. No redirect of stderr is in force in this shell
+# while it waits: a trap after Ctrl-C runs with the redirects of the
+# command it interrupted, so a 2>/dev/null here sent the stop to
+# /dev/null (#428). So the group has only the terminal as its stdin, and
+# the answer is read from it in a $( ) subshell, which silences its own
+# errors.
 ask_terminal() {
   local tty="${BOOTSTRAP_TTY:-/dev/tty}" got="" opened="" eof=""
   block_start
   read_line "$1"
-  if [ -r "$tty" ]; then
+  if [ -r "$tty" ] && (: <"$tty") 2>/dev/null; then
     {
       opened=1
       discard_typeahead
       answer_line "$2 [no]:"
       printf ' '
-      IFS= read -r got || eof=1
-    } 2>/dev/null <"$tty" || true
+      # The line read, also a last one with no line break, and read's
+      # own result: a failed read (end of input) is eof, as before.
+      got="$(
+        IFS= read -r line 2>/dev/null
+        rc=$?
+        printf '%s' "${line-}"
+        exit "$rc"
+      )" || eof=1
+    } <"$tty" || true
   fi
   if [ -z "$opened" ]; then
     answer_line "$2 [no]:"
@@ -705,7 +718,20 @@ awk_run() {
 # run_gh <args...>: runs gh, or $BOOTSTRAP_GH, with gh's own prompts
 # turned off. They misbehave in Git Bash's terminal, so the script asks
 # its own questions.
+# run_gh --to <out> <err> <args...>: the same, with gh's stdout in the
+# file <out> and its stderr in <err>. Give the files here, never as a
+# redirect of the call (run_gh ... >"$out"): while a trap runs, the
+# redirect of the function call it interrupted is still in force, so a
+# stop after Ctrl-C during gh went into those files, which the script
+# then deleted, and the user saw nothing (#425). A redirect of gh itself
+# is made in gh's own process.
 run_gh() {
+  if [ "${1:-}" = --to ]; then
+    local out="$2" err="$3"
+    shift 3
+    GH_PROMPT_DISABLED=1 "${BOOTSTRAP_GH:-gh}" "$@" >"$out" 2>"$err"
+    return
+  fi
   GH_PROMPT_DISABLED=1 "${BOOTSTRAP_GH:-gh}" "$@"
 }
 
@@ -2184,7 +2210,7 @@ preflight_git() {
 GH_PROBLEM=""
 check_gh() {
   local help=""
-  if ! run_gh --version >/dev/null 2>&1; then
+  if ! run_gh --to /dev/null /dev/null --version; then
     GH_PROBLEM=missing
     return 1
   fi
@@ -2682,7 +2708,7 @@ api_call() {
   out="$(make_temp)"
   err="$(make_temp)"
   API_RC=0
-  run_gh api -i "$@" >"$out" 2>"$err" || API_RC=$?
+  run_gh --to "$out" "$err" api -i "$@" || API_RC=$?
   API_STATUS="" API_HEADERS="" API_BODY="" API_BODY_CR="" API_MESSAGE=""
   API_ERR="$(tr -d '\r' <"$err")"
   while IFS= read -r raw || [ -n "$raw" ]; do
@@ -3448,7 +3474,7 @@ create_project() {
   step_start "Creating the project $IN_OWNER/$IN_NAME on GitHub"
   out="$(make_temp)"
   err="$(make_temp)"
-  run_gh repo create "$IN_OWNER/$IN_NAME" --template "$BOOTSTRAPPER" "--$IN_VISIBILITY" --description "$IN_DESCRIPTION" >"$out" 2>"$err" || rc=$?
+  run_gh --to "$out" "$err" repo create "$IN_OWNER/$IN_NAME" --template "$BOOTSTRAPPER" "--$IN_VISIBILITY" --description "$IN_DESCRIPTION" || rc=$?
   CREATE_ERR="$(tr -d '\r' <"$err")"
   rm -f "$out" "$err"
   if [ "$rc" -eq 0 ]; then
@@ -3666,7 +3692,7 @@ offer_public() {
   }
   out="$(make_temp)"
   err="$(make_temp)"
-  run_gh repo edit "$IN_OWNER/$IN_NAME" --visibility public --accept-visibility-change-consequences >"$out" 2>"$err" || rc=$?
+  run_gh --to "$out" "$err" repo edit "$IN_OWNER/$IN_NAME" --visibility public --accept-visibility-change-consequences || rc=$?
   raw="$(cat "$out" "$err" | tr -d '\r')"
   rm -f "$out" "$err"
   if [ "$rc" -eq 0 ]; then
@@ -3732,7 +3758,7 @@ set_merge_settings() {
   step_start "Setting how proposed changes are added to the project"
   out="$(make_temp)"
   err="$(make_temp)"
-  run_gh repo edit "$IN_OWNER/$IN_NAME" --delete-branch-on-merge --enable-squash-merge >"$out" 2>"$err" || rc=$?
+  run_gh --to "$out" "$err" repo edit "$IN_OWNER/$IN_NAME" --delete-branch-on-merge --enable-squash-merge || rc=$?
   raw="$(tr -d '\r' <"$err")"
   rm -f "$out" "$err"
   if [ "$rc" -ne 0 ]; then
@@ -3896,7 +3922,7 @@ try_clone() {
   if [ -n "$MADE_DIR" ] && [ -e "$MADE_DIR" ]; then rm -rf -- "$MADE_DIR"; fi
   out="$(make_temp)"
   err="$(make_temp)"
-  GIT_TERMINAL_PROMPT=0 run_gh repo clone "$IN_OWNER/$IN_NAME" "$IN_DIR" >"$out" 2>"$err" || rc=$?
+  GIT_TERMINAL_PROMPT=0 run_gh --to "$out" "$err" repo clone "$IN_OWNER/$IN_NAME" "$IN_DIR" || rc=$?
   raw="$(cat "$out" "$err" | tr -d '\r')"
   rm -f "$out" "$err"
   [ "$rc" -ne 0 ] || return 0
@@ -4830,8 +4856,8 @@ propose_change() {
   out="$(make_temp)"
   err="$(make_temp)"
   cat <<<"$PR_BODY" >"$body"
-  run_gh pr create --repo "$IN_OWNER/$IN_NAME" --base main --head "$SETUP_BRANCH" --title "Set up $IN_NAME" \
-    --body-file "$body" >"$out" 2>"$err" || rc=$?
+  run_gh --to "$out" "$err" pr create --repo "$IN_OWNER/$IN_NAME" --base main --head "$SETUP_BRANCH" \
+    --title "Set up $IN_NAME" --body-file "$body" || rc=$?
   PR_URL="$(tr -d '\r' <"$out" | grep -E '^https://[^ ]*/pull/[0-9]+$' | tail -1)" || PR_URL=""
   raw="$(cat "$out" "$err" | tr -d '\r')"
   rm -f "$body" "$out" "$err"
@@ -4917,7 +4943,7 @@ look_at_build() {
   local out err rc=0 lines raw line runs="" pr_runs="" b
   out="$(make_temp)"
   err="$(make_temp)"
-  run_gh pr checks "$PR_NUMBER" --repo "$IN_OWNER/$IN_NAME" --json name,bucket,event --jq "$BUILD_JQ" >"$out" 2>"$err" || rc=$?
+  run_gh --to "$out" "$err" pr checks "$PR_NUMBER" --repo "$IN_OWNER/$IN_NAME" --json name,bucket,event --jq "$BUILD_JQ" || rc=$?
   lines="$(tr -d '\r' <"$out")"
   raw="$(tr -d '\r' <"$err")"
   rm -f "$out" "$err"
