@@ -1,8 +1,9 @@
 # Process P-1. Session startup
 
 P-1 § 1 (C) Reading before work
-(1) Before any other work, a session reads all of these Rules (`rules/RULES.md`), the processes its work needs, and the project's local rules and local processes.
-(2) Before writing code in a project, a session also reads the project's specification and developer onboarding, where the project has them, and the files its local rules name for session start.
+(1) Before any other work, a session reads all of these Rules (`rules/RULES.md`), the processes its work needs, and the project's local rules and local processes. For an agent that a session starts, the reading before work is, in place of that sentence and of (2), the files its brief names and no others, and the brief names the Rules, local rules and local processes its task needs; (3) applies to it as written. A review agent under Process P-3 gets no brief; its reading is the inputs of Process P-3 § 2.
+(2) Before writing code in a project, a session also reads the project's specification and developer onboarding, where the project has them, and the files its local rules name for session start. A specification kept as an index with section files is read as its index and the sections its task touches.
+(3) When a session's earlier turns have been replaced by a summary, it reads all of these Rules (`rules/RULES.md`) again, in the way P-1 § 9 sets out, before its next action.
 
 P-1 § 2 Access to the repository
 (1) Before any other work, the session makes sure it can read and push to this repository, checked in accordance with P-1 § 3.
@@ -27,7 +28,7 @@ P-1 § 5 Today's work
 (1) A session that the product owner starts asks them what today's work is, unless their first message says it.
 
 P-1 § 6 Model and effort
-(1) Reviews of code, process and architecture changes, and architecture design drafts, run in a separate agent on Opus. Merge-only runs and the writing of docs, backlog and changelog use the default model.
+(1) The session chooses the model and effort of each agent it starts. The default model is the cheaper one, for reviews too; a review runs in a separate agent. A stronger model runs only where the product owner asks for it.
 (2) Clead sessions run by default on Sonnet at High effort; Medium effort is used for a purely mechanical batch.
 (3) Clead cannot read or change the model or effort of its own session. Before a task that warrants another setting, Clead recommends one and waits for the product owner to switch or to say proceed, and says when to switch back.
 (4) Clead sets the model of the agents it starts; the product owner sets the model and effort of their own sessions.
@@ -49,3 +50,9 @@ P-1 § 9 Complete reads
 P-1 § 10 Startup report
 (1) In a session the product owner starts, the first reply that P-1 §§ 3 (2), 4 (5), 7 (1) and 8 (1) name is the session's first message to the product owner after the reads of P-1 § 1 and § 4. It is sent before any work on the day's task begins, also when the product owner's first message holds the start line, the delegation line and the task together. Where the task would otherwise begin in the same turn, the session sends the report with the tool that shows the product owner a message while the session goes on working (in the Claude app, `SendUserMessage`), and starts the task only after it has been sent. A session without such a tool gives the report as the first text of its turn, before any tool call for the task.
 (2) The report gives, in this order: the capabilities line of P-1 § 3 (2); the entries P-1 § 4 (5) names, or that there are none; the list of P-1 § 8 (1); the line of P-1 § 7 (1), or, where the product owner's first message already holds that line, that it was received; and, where the product owner's first message names no task, the question of P-1 § 5 (1).
+
+P-1 § 11 Requests
+(1) Each request a session makes reads the whole context again, so a session makes few: it puts independent commands into one tool call, and reads a file once and only as far as its task needs. A file that a paragraph of these Rules requires in full is read in full, as P-1 § 9 sets out.
+(2) A command filters its output (`head`, `grep`, `jq`, a quiet flag) so that long output does not enter the context, unless the session needs all of it.
+(3) A session waits for CI in one command that loops until the check finishes or a stated time has passed, not in repeated requests.
+(4) A session puts what it needs from the product owner into one reply and does not ask in turns.
