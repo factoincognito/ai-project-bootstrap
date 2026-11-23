@@ -62,6 +62,11 @@ To set up the project (step 0 below installs the tools):
   Free. It runs the tools these kinds of project are built and checked
   with, and the script uses it to set them up. If it is missing, the
   script says so and shows how to install it.
+- **Only for a C# program: the .NET SDK.** Free. You need it to build
+  and test the project on your computer, not for the setup: if it is
+  missing, the script says so and goes on without it. Get it at
+  https://dotnet.microsoft.com/download/dotnet/10.0 (choose the SDK, not
+  the runtime).
 
 To work on the project with Claude afterwards:
 
@@ -299,6 +304,14 @@ here first:
   - a folder for the new project that does not exist, or that
     is not empty, or that is a file, or that cannot be written to, or
     that is inside another project that git keeps track of.
+- Before anything is created, the script only tells you, and goes on after Enter:
+  - the .NET SDK not installed, or only other versions of it (only for
+    the csharp pack): the setup does not need it, so it goes on without
+    it, and the note gives the page to get it from,
+    https://dotnet.microsoft.com/download/dotnet/10.0, and says that
+    only a window opened after the install finds it. Enter, or any other
+    input, goes on; there is no q here. With `--non-interactive` the
+    note is printed and the script does not wait.
 - Before anything is created, the script stops and you start it again
   with the command it prints, because it cannot check again in the same
   run:
