@@ -80,8 +80,8 @@ set -euo pipefail
 # and these hold the placeholders. These two lines are the only place a
 # placeholder may appear: the build refuses any left in its output, so
 # code compares against these variables, never a literal placeholder.
-SCRIPT_VERSION='v2.9.3'
-SCRIPT_COMMIT='a6a6d36ed6b0012287ea85bd9f13ffba4f47186b'
+SCRIPT_VERSION='v2.9.4'
+SCRIPT_COMMIT='f3a598c3c161e878996ab4868f4fba9a4aaaf2ec'
 
 # State of the stop handling (see catch_stops): CLEAN is set by every
 # deliberate stop, CURRENT_STEP is the step being done, or the question
